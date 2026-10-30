@@ -87,6 +87,19 @@ class DrivingSensorsPlugin : Plugin() {
             (0 until arr.length()).mapNotNull { arr.optString(it, null) }
         } ?: listOf("location", "motion", "notifications")
 
+        val declared = declaredPermissions()
+        val missing = LinkedHashSet<String>()
+        fun need(type: String, vararg perms: String) {
+            if (type in requested) missing.addAll(perms.filter { it !in declared })
+        }
+        need("location", Manifest.permission.ACCESS_FINE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) need("backgroundLocation", Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) need("notifications", Manifest.permission.POST_NOTIFICATIONS)
+        if (missing.isNotEmpty()) {
+            call.reject("Missing in AndroidManifest.xml: ${missing.joinToString(", ")}", "NOT_SUPPORTED")
+            return
+        }
+
         val aliases = ArrayList<String>()
         if ("location" in requested && !isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) aliases.add(ALIAS_LOCATION)
         // Android 11+ ignores a request that asks for foreground and background location together.
@@ -155,6 +168,8 @@ class DrivingSensorsPlugin : Plugin() {
                 onSuccess = { count ->
                     val ret = JSObject()
                     ret.put("active", state != null)
+                    ret.put("serviceRunning", TrackingCoordinator.serviceRunning)
+                    TrackingCoordinator.lastLocation?.let { ret.put("lastLocation", toJs(it.toMap())) }
                     state?.let { ret.put("sessionId", it.sessionId) }
                     ret.put("inTrip", state != null && TrackingCoordinator.inTrip)
                     ret.put("buffered", count)
@@ -162,6 +177,45 @@ class DrivingSensorsPlugin : Plugin() {
                 },
                 onFailure = { call.reject("Could not read buffer: ${it.message}", "INTERNAL") },
             )
+        }
+    }
+
+    @PluginMethod
+    fun getLastReadings(call: PluginCall) {
+        call.resolve(toJs(sensorReadingsMap(TrackingCoordinator.lastLocation, TrackingCoordinator.lastMotion)))
+    }
+
+    @PluginMethod
+    fun getCurrentReadings(call: PluginCall) {
+        fun number(name: String, default: Double, min: Double, max: Double): Double {
+            val v = call.getDouble(name) ?: return default
+            require(v.isFinite() && v > 0) { "$name must be a positive number" }
+            return v.coerceIn(min, max)
+        }
+        val timeoutMs: Long
+        val motionMs: Long
+        try {
+            timeoutMs = number("timeoutMs", 10_000.0, 1000.0, 60_000.0).toLong()
+            motionMs = number("motionSampleMs", 1000.0, 100.0, 5000.0).toLong()
+        } catch (e: IllegalArgumentException) {
+            call.reject(e.message, "INVALID_ARGUMENT")
+            return
+        }
+        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            call.reject("Fine location permission is required", "PERMISSION_DENIED")
+            return
+        }
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        if (!LocationManagerCompat.isLocationEnabled(locationManager)) {
+            call.reject("Location services are disabled", "LOCATION_DISABLED")
+            return
+        }
+        try {
+            CurrentReadings.read(context, timeoutMs, motionMs) { location, motion ->
+                call.resolve(toJs(sensorReadingsMap(location, motion)))
+            }
+        } catch (e: Exception) {
+            call.reject("Could not read sensors: ${e.message}", "INTERNAL", e)
         }
     }
 
@@ -197,6 +251,32 @@ class DrivingSensorsPlugin : Plugin() {
     }
 
     // ---- helpers ----
+
+    private fun declaredPermissions(): Set<String> = try {
+        val info = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.packageManager.getPackageInfo(context.packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()))
+        } else {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
+        }
+        info.requestedPermissions?.toSet() ?: emptySet()
+    } catch (e: Exception) {
+        Log.w(TAG, "could not read declared permissions", e)
+        // Unknown: do not block the request.
+        setOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+            Manifest.permission.POST_NOTIFICATIONS,
+        )
+    }
+
+    /** Converts nested maps (from the pure reading mappers) to a JSObject. */
+    @Suppress("UNCHECKED_CAST")
+    private fun toJs(map: Map<String, Any>): JSObject {
+        val o = JSObject()
+        for ((k, v) in map) o.put(k, if (v is Map<*, *>) toJs(v as Map<String, Any>) else v)
+        return o
+    }
 
     private fun parseConfig(call: PluginCall): TrackingConfig {
         val d = TrackingConfig()

@@ -24,6 +24,19 @@ object TrackingCoordinator {
     @Volatile
     var inTrip = false
 
+    /** True while the service has an active tracking session. */
+    @Volatile
+    var sessionRunning = false
+
+    val serviceRunning: Boolean get() = service != null && sessionRunning
+
+    /** Latest fix / motion sample, published by the service as immutable snapshots. */
+    @Volatile
+    var lastLocation: LocationReading? = null
+
+    @Volatile
+    var lastMotion: MotionReading? = null
+
     private val lock = Any()
 
     private fun prefs(context: Context): SharedPreferences =

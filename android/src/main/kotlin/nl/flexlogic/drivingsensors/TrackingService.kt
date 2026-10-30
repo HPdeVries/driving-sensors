@@ -11,16 +11,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
-import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -51,12 +47,6 @@ class TrackingService : Service() {
     private lateinit var handler: Handler
     private var session: Session? = null
 
-    // Sensor state (handler thread only).
-    private val gravity = DoubleArray(3)
-    private val lowPassGravity = DoubleArray(3)
-    private var hasGravitySensor = false
-    private var hasLinearSensor = false
-    private var clockOffsetMs = 0L
     private var sensorsRegistered = false
 
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
@@ -68,10 +58,7 @@ class TrackingService : Service() {
         }
     }
 
-    private val sensorListener = object : SensorEventListener {
-        override fun onSensorChanged(event: SensorEvent) = onSensor(event)
-        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-    }
+    private lateinit var sampler: MotionSampler
 
     private val tickRunnable = object : Runnable {
         override fun run() {
@@ -87,6 +74,7 @@ class TrackingService : Service() {
         super.onCreate()
         thread = HandlerThread("driving-sensors").also { it.start() }
         handler = Handler(thread.looper)
+        sampler = MotionSampler(sensorManager, handler, ::onMotion)
         TrackingCoordinator.service = this
     }
 
@@ -141,7 +129,11 @@ class TrackingService : Service() {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Trip recording", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(CHANNEL_ID, "Trip recording", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
+            },
         )
     }
 
@@ -156,6 +148,7 @@ class TrackingService : Service() {
             .setContentText(config.notificationText)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
+            .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(contentIntent)
             .build()
@@ -169,12 +162,15 @@ class TrackingService : Service() {
         val s = Session(state.sessionId, state.config)
         session = s
         TrackingCoordinator.inTrip = false
+        TrackingCoordinator.lastLocation = null
         if (!requestLocation(s, highAccuracy = false)) {
             Log.e(TAG, "location permission missing, stopping")
             session = null
+            TrackingCoordinator.sessionRunning = false
             ContextCompat.getMainExecutor(this).execute { stopSelf() }
             return
         }
+        TrackingCoordinator.sessionRunning = true
         handler.postDelayed(tickRunnable, TICK_MS)
     }
 
@@ -183,6 +179,7 @@ class TrackingService : Service() {
         locationClient.removeLocationUpdates(locationCallback)
         unregisterSensors()
         session = null
+        TrackingCoordinator.sessionRunning = false
         TrackingCoordinator.inTrip = false
     }
 
@@ -217,6 +214,7 @@ class TrackingService : Service() {
             if (location.hasAccuracy()) location.accuracy.toDouble() else null,
         )
         s.lastFix = fix
+        TrackingCoordinator.lastLocation = LocationReading.from(fix)
 
         s.trip.onFix(fix).forEach { applyTripEvent(s, it) }
         if (!s.trip.inTrip) return
@@ -264,61 +262,28 @@ class TrackingService : Service() {
 
     private fun registerSensors(s: Session) {
         if (sensorsRegistered) return
-        val linear = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
-        val grav = sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)
-        val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
-        hasLinearSensor = linear != null
-        hasGravitySensor = grav != null
-        gravity.fill(0.0)
-        lowPassGravity.fill(0.0)
-        clockOffsetMs = System.currentTimeMillis() - SystemClock.elapsedRealtime()
-        val periodUs = (1_000_000.0 / s.config.accelSampleHz).toInt()
-        val sensors = buildList {
-            linear?.let { add(it) }
-            grav?.let { add(it) }
-            if ((linear == null || grav == null) && accel != null) add(accel)
-        }
-        for (sensor in sensors) sensorManager.registerListener(sensorListener, sensor, periodUs, handler)
-        sensorsRegistered = sensors.isNotEmpty()
+        sensorsRegistered = sampler.start(s.config.accelSampleHz)
         if (!sensorsRegistered) Log.w(TAG, "no usable motion sensor, harsh events disabled")
     }
 
     private fun unregisterSensors() {
         if (!sensorsRegistered) return
-        sensorManager.unregisterListener(sensorListener)
+        sampler.stop()
         sensorsRegistered = false
     }
 
-    private fun onSensor(event: SensorEvent) {
+    private fun onMotion(m: MotionReading) {
+        TrackingCoordinator.lastMotion = m
         val s = session ?: return
-        val v = event.values
-        when (event.sensor.type) {
-            Sensor.TYPE_GRAVITY -> for (i in 0..2) gravity[i] = v[i].toDouble()
-            Sensor.TYPE_LINEAR_ACCELERATION -> feedAccel(s, event, v[0].toDouble(), v[1].toDouble(), v[2].toDouble())
-            Sensor.TYPE_ACCELEROMETER -> {
-                for (i in 0..2) {
-                    lowPassGravity[i] = if (lowPassGravity[i] == 0.0) v[i].toDouble() else LOW_PASS * lowPassGravity[i] + (1 - LOW_PASS) * v[i]
-                }
-                if (!hasGravitySensor) lowPassGravity.copyInto(gravity)
-                if (!hasLinearSensor) {
-                    feedAccel(s, event, v[0] - lowPassGravity[0], v[1] - lowPassGravity[1], v[2] - lowPassGravity[2])
-                }
-            }
-        }
-    }
-
-    private fun feedAccel(s: Session, event: SensorEvent, ax: Double, ay: Double, az: Double) {
-        val ts = clockOffsetMs + event.timestamp / 1_000_000L
-        s.harsh.onAccel(ts, ax, ay, az, gravity[0], gravity[1], gravity[2])
+        s.harsh.onAccel(m.ts, m.ax, m.ay, m.az, m.gx, m.gy, m.gz)
     }
 
     companion object {
         private const val TAG = "DrivingSensors"
-        private const val CHANNEL_ID = "driving_sensors_tracking"
+        private const val CHANNEL_ID = "driving_sensors_tracking_v2"
         private const val NOTIFICATION_ID = 7421
         private const val TICK_MS = 10_000L
         private const val IDLE_INTERVAL_MS = 5000L
         private const val LOCATION_TOLERANCE_MS = 100L
-        private const val LOW_PASS = 0.9
     }
 }

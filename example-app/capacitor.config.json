@@ -1,5 +1,5 @@
 {
-  "appId": "com.example.plugin",
-  "appName": "Driving Sensors Test",
+  "appId": "com.ceeshr.driveme",
+  "appName": "DriveMe Test",
   "webDir": "dist"
 }

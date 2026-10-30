@@ -1,4 +1,4 @@
-package com.example.plugin;
+package com.ceeshr.driveme;
 
 import com.getcapacitor.BridgeActivity;
 

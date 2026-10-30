@@ -32,7 +32,7 @@ Or `npx cap open android` and Run on the device. The plugin's own manifest must 
 
 ### iOS
 
-`npx cap open ios`, select the `App` target, set your **Team** under Signing & Capabilities (bundle id `com.example.plugin`, change it to something unique), connect the iPhone and Run. Simulator build check: `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' build`. The project uses SPM (Capacitor 8), no CocoaPods.
+`npx cap open ios`, select the `App` target, set your **Team** under Signing & Capabilities (bundle id `com.ceeshr.driveme`), connect the iPhone and Run. Simulator build check: `xcodebuild -project ios/App/App.xcodeproj -scheme App -destination 'generic/platform=iOS Simulator' build`. The project uses SPM (Capacitor 8), no CocoaPods.
 
 `ios/App/App/Info.plist` already contains `UIBackgroundModes = [location]`, `NSLocationWhenInUseUsageDescription`, `NSLocationAlwaysAndWhenInUseUsageDescription` and `NSMotionUsageDescription`. The simulator cannot deliver real motion data: use a physical device.
 

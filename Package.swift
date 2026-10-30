@@ -19,7 +19,9 @@ let package = Package(
                 .product(name: "Capacitor", package: "capacitor-swift-pm"),
                 .product(name: "Cordova", package: "capacitor-swift-pm")
             ],
-            path: "ios/Sources/DrivingSensorsPlugin"),
+            path: "ios/Sources/DrivingSensorsPlugin",
+            resources: [.copy("PrivacyInfo.xcprivacy")],
+            linkerSettings: [.linkedLibrary("sqlite3")]),
         .testTarget(
             name: "DrivingSensorsPluginTests",
             dependencies: ["DrivingSensorsPlugin"],

@@ -66,5 +66,15 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Driving Sensors records your speed and position while you drive.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Driving Sensors needs background location to record trips while the app is not on screen.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Driving Sensors uses motion data to detect harsh braking and acceleration.</string>
 </dict>
 </plist>

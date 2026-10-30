@@ -1,0 +1,13 @@
+{
+  "platforms": {
+    "android": {
+      "manifest": [
+        {
+          "file": "AndroidManifest.xml",
+          "target": "manifest/application",
+          "inject": "<service android:name=\"nl.flexlogic.drivingsensors.DrivingSensorsService\" android:exported=\"false\" android:foregroundServiceType=\"location\" />"
+        }
+      ]
+    }
+  }
+}

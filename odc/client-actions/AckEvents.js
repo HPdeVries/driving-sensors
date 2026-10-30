@@ -1,11 +1,13 @@
 /*
  * Client action: AckEvents
  * Input parameters:
- *   UpToId (Long Integer) - delete all buffered events with id <= UpToId
+ *   UpToId (Integer) - delete all buffered events with id <= UpToId
  * Output parameters:
  *   Success (Boolean)
  *   ErrorCode (Text)
  *   ErrorMessage (Text)
+ *
+ * Ids are Integer on purpose: Long Integer values reach JS nodes as wrapped objects, not numbers.
  *
  * JS node body (async JS node: ODC waits for $resolve()).
  */

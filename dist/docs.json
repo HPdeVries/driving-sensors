@@ -1,0 +1,423 @@
+{
+  "api": {
+    "name": "DrivingSensorsPlugin",
+    "slug": "drivingsensorsplugin",
+    "docs": "",
+    "tags": [],
+    "methods": [
+      {
+        "name": "checkPermissions",
+        "signature": "() => Promise<PermissionStatus>",
+        "parameters": [],
+        "returns": "Promise<PermissionStatus>",
+        "tags": [],
+        "docs": "Check the current state of the permissions the plugin needs.",
+        "complexTypes": [
+          "PermissionStatus"
+        ],
+        "slug": "checkpermissions"
+      },
+      {
+        "name": "requestPermissions",
+        "signature": "(options?: { permissions?: DrivingSensorsPermissionType[] | undefined; } | undefined) => Promise<PermissionStatus>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ permissions?: DrivingSensorsPermissionType[] | undefined; } | undefined"
+          }
+        ],
+        "returns": "Promise<PermissionStatus>",
+        "tags": [],
+        "docs": "Request permissions. On Android, `backgroundLocation` can only be granted\nafter `location` is granted, so request them in two separate calls.\nOmit `permissions` to request `location`, `motion` and `notifications`.",
+        "complexTypes": [
+          "PermissionStatus",
+          "DrivingSensorsPermissionType"
+        ],
+        "slug": "requestpermissions"
+      },
+      {
+        "name": "startTracking",
+        "signature": "(options?: TrackingOptions | undefined) => Promise<{ sessionId: string; }>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "TrackingOptions | undefined"
+          }
+        ],
+        "returns": "Promise<{ sessionId: string; }>",
+        "tags": [],
+        "docs": "Start background tracking. Idempotent: if tracking is already active,\nresolves with the current session id and ignores the new options.",
+        "complexTypes": [
+          "TrackingOptions"
+        ],
+        "slug": "starttracking"
+      },
+      {
+        "name": "stopTracking",
+        "signature": "() => Promise<void>",
+        "parameters": [],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Stop tracking. Emits TRIP_END if a trip is in progress. Buffered events are kept.",
+        "complexTypes": [],
+        "slug": "stoptracking"
+      },
+      {
+        "name": "getStatus",
+        "signature": "() => Promise<TrackingStatus>",
+        "parameters": [],
+        "returns": "Promise<TrackingStatus>",
+        "tags": [],
+        "docs": "Current tracking state and number of events waiting in the native buffer.",
+        "complexTypes": [
+          "TrackingStatus"
+        ],
+        "slug": "getstatus"
+      },
+      {
+        "name": "getBufferedEvents",
+        "signature": "(options?: { afterId?: number | undefined; limit?: number | undefined; } | undefined) => Promise<{ events: TelemetryEvent[]; }>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ afterId?: number | undefined; limit?: number | undefined; } | undefined"
+          }
+        ],
+        "returns": "Promise<{ events: TelemetryEvent[]; }>",
+        "tags": [],
+        "docs": "Read buffered events in ascending id order. Does not remove them; call `ackEvents` afterwards.",
+        "complexTypes": [
+          "TelemetryEvent"
+        ],
+        "slug": "getbufferedevents"
+      },
+      {
+        "name": "ackEvents",
+        "signature": "(options: { upToId: number; }) => Promise<void>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ upToId: number; }"
+          }
+        ],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Delete all buffered events with `id <= upToId`.",
+        "complexTypes": [],
+        "slug": "ackevents"
+      }
+    ],
+    "properties": []
+  },
+  "interfaces": [
+    {
+      "name": "PermissionStatus",
+      "slug": "permissionstatus",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "location",
+          "tags": [],
+          "docs": "Foreground (when-in-use) location.",
+          "complexTypes": [
+            "PermissionState"
+          ],
+          "type": "PermissionState"
+        },
+        {
+          "name": "backgroundLocation",
+          "tags": [],
+          "docs": "Background location (Android ACCESS_BACKGROUND_LOCATION, iOS \"Always\").",
+          "complexTypes": [
+            "PermissionState"
+          ],
+          "type": "PermissionState"
+        },
+        {
+          "name": "motion",
+          "tags": [],
+          "docs": "Motion sensors. Android has no runtime permission for these and always reports `granted`.",
+          "complexTypes": [
+            "PermissionState"
+          ],
+          "type": "PermissionState"
+        },
+        {
+          "name": "notifications",
+          "tags": [],
+          "docs": "Notifications (Android 13+, needed for the foreground-service notification). Always `granted` on iOS.",
+          "complexTypes": [
+            "PermissionState"
+          ],
+          "type": "PermissionState"
+        }
+      ]
+    },
+    {
+      "name": "TrackingOptions",
+      "slug": "trackingoptions",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "harshBrakeMps2",
+          "tags": [],
+          "docs": "Horizontal deceleration threshold for HARSH_BRAKE, m/s², positive. Default 3.0.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "harshAccelMps2",
+          "tags": [],
+          "docs": "Horizontal acceleration threshold for HARSH_ACCEL, m/s², positive. Default 3.0.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "locationIntervalMs",
+          "tags": [],
+          "docs": "Location interval while a trip is in progress, ms. Default 1000.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "accelSampleHz",
+          "tags": [],
+          "docs": "Accelerometer sample rate while a trip is in progress, Hz. Default 50.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "tripStartSpeedMps",
+          "tags": [],
+          "docs": "Speed that starts a trip, m/s. Default 4.2 (~15 km/h).",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "tripEndIdleMs",
+          "tags": [],
+          "docs": "Time below `tripStartSpeedMps` after which the trip ends, ms. Default 180000.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "minEventGapMs",
+          "tags": [],
+          "docs": "Minimum time between two harsh events, ms. Default 3000.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "notificationTitle",
+          "tags": [],
+          "docs": "Android foreground-service notification title. Default \"Trip recording active\".",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "notificationText",
+          "tags": [],
+          "docs": "Android foreground-service notification text. Default \"Recording driving data\".",
+          "complexTypes": [],
+          "type": "string | undefined"
+        }
+      ]
+    },
+    {
+      "name": "TrackingStatus",
+      "slug": "trackingstatus",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "active",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "sessionId",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "inTrip",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "buffered",
+          "tags": [],
+          "docs": "Number of events currently in the native buffer.",
+          "complexTypes": [],
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "name": "TelemetryEvent",
+      "slug": "telemetryevent",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "id",
+          "tags": [],
+          "docs": "Monotonically increasing, assigned by the native buffer.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "ts",
+          "tags": [],
+          "docs": "Epoch milliseconds, native timestamp.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "type",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [
+            "TelemetryEventType"
+          ],
+          "type": "TelemetryEventType"
+        },
+        {
+          "name": "sessionId",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "lat",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "lon",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "speedMps",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "accuracyM",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "peakMps2",
+          "tags": [],
+          "docs": "Peak horizontal acceleration magnitude for HARSH_* events, m/s², positive.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        }
+      ]
+    }
+  ],
+  "enums": [],
+  "typeAliases": [
+    {
+      "name": "PermissionState",
+      "slug": "permissionstate",
+      "docs": "",
+      "types": [
+        {
+          "text": "'prompt'",
+          "complexTypes": []
+        },
+        {
+          "text": "'prompt-with-rationale'",
+          "complexTypes": []
+        },
+        {
+          "text": "'granted'",
+          "complexTypes": []
+        },
+        {
+          "text": "'denied'",
+          "complexTypes": []
+        }
+      ]
+    },
+    {
+      "name": "DrivingSensorsPermissionType",
+      "slug": "drivingsensorspermissiontype",
+      "docs": "",
+      "types": [
+        {
+          "text": "'location'",
+          "complexTypes": []
+        },
+        {
+          "text": "'backgroundLocation'",
+          "complexTypes": []
+        },
+        {
+          "text": "'motion'",
+          "complexTypes": []
+        },
+        {
+          "text": "'notifications'",
+          "complexTypes": []
+        }
+      ]
+    },
+    {
+      "name": "TelemetryEventType",
+      "slug": "telemetryeventtype",
+      "docs": "",
+      "types": [
+        {
+          "text": "'LOCATION'",
+          "complexTypes": []
+        },
+        {
+          "text": "'HARSH_BRAKE'",
+          "complexTypes": []
+        },
+        {
+          "text": "'HARSH_ACCEL'",
+          "complexTypes": []
+        },
+        {
+          "text": "'TRIP_START'",
+          "complexTypes": []
+        },
+        {
+          "text": "'TRIP_END'",
+          "complexTypes": []
+        }
+      ]
+    }
+  ],
+  "pluginConfigs": []
+}

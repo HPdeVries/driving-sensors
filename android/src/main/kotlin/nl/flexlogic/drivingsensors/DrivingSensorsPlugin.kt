@@ -89,7 +89,10 @@ class DrivingSensorsPlugin : Plugin() {
 
         val aliases = ArrayList<String>()
         if ("location" in requested && !isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) aliases.add(ALIAS_LOCATION)
-        if ("backgroundLocation" in requested && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !backgroundGranted()) {
+        // Android 11+ ignores a request that asks for foreground and background location together.
+        if ("backgroundLocation" in requested && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !backgroundGranted() &&
+            isGranted(Manifest.permission.ACCESS_FINE_LOCATION)
+        ) {
             aliases.add(ALIAS_BACKGROUND)
         }
         if ("notifications" in requested && !notificationsGranted()) aliases.add(ALIAS_NOTIFICATIONS)

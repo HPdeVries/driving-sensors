@@ -1,7 +1,7 @@
 /*
  * Client action: GetBufferedEvents
  * Input parameters:
- *   AfterId (Long Integer) - return events with id > AfterId (0 = from start)
+ *   AfterId (Integer) - return events with id > AfterId (0 = from start)
  *   Limit (Integer) - max events, plugin caps at 1000; 0 = 500
  * Output parameters:
  *   Success (Boolean)
@@ -9,7 +9,9 @@
  *   ErrorMessage (Text)
  *   EventsJson (Text) - JSON array of TelemetryEvent
  *   Count (Integer)
- *   LastId (Long Integer) - id of last returned event, 0 if none
+ *   LastId (Integer) - id of last returned event, 0 if none
+ *
+ * Ids are Integer on purpose: Long Integer values reach JS nodes as wrapped objects, not numbers.
  *
  * JS node body (async JS node: ODC waits for $resolve()).
  */

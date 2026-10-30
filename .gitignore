@@ -1,5 +1,5 @@
 # node files
-dist
+# dist is committed: MABS installs from the GitHub tag without a build step
 node_modules
 
 # iOS files

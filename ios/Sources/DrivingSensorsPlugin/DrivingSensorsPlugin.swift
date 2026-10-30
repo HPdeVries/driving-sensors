@@ -16,7 +16,9 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stopTracking", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getBufferedEvents", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "ackEvents", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "ackEvents", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getLastReadings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getCurrentReadings", returnType: CAPPluginReturnPromise)
     ]
     private let implementation = DrivingSensors()
 
@@ -64,9 +66,36 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func getStatus(_ call: CAPPluginCall) {
         DispatchQueue.global().async {
             let s = self.implementation.status()
-            var result: [String: Any] = ["active": s.active, "inTrip": s.inTrip, "buffered": s.buffered]
+            var result: [String: Any] = ["active": s.active, "serviceRunning": s.serviceRunning,
+                                         "inTrip": s.inTrip, "buffered": s.buffered]
+            if let loc = s.lastLocation { result["lastLocation"] = loc.dictionary }
             if s.active, let id = s.sessionId { result["sessionId"] = id }
             call.resolve(result)
+        }
+    }
+
+    @objc func getLastReadings(_ call: CAPPluginCall) {
+        DispatchQueue.global().async {
+            call.resolve(self.implementation.lastReadings())
+        }
+    }
+
+    @objc func getCurrentReadings(_ call: CAPPluginCall) {
+        /// .some(nil) = absent (use default); nil = invalid.
+        func number(_ key: String) -> Double?? {
+            guard let raw = call.options[key], !(raw is NSNull) else { return .some(nil) }
+            guard let n = raw as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(),
+                  n.doubleValue.isFinite, n.doubleValue > 0 else { return nil }
+            return .some(n.doubleValue)
+        }
+        guard let timeout = number("timeoutMs"), let sample = number("motionSampleMs") else {
+            return call.reject("timeoutMs and motionSampleMs must be positive numbers", "INVALID_ARGUMENT")
+        }
+        implementation.currentReadings(timeoutMs: timeout, motionSampleMs: sample) { result in
+            switch result {
+            case .success(let r): call.resolve(r)
+            case .failure(let e): call.reject(e.message, e.code)
+            }
         }
     }
 

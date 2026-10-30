@@ -50,8 +50,17 @@ func dsLog(_ message: String) {
     private var estimator = SpeedEstimator()
     private var lastLocationTs: Int64?
     private var timer: DispatchSourceTimer?
+    /// Plugin-started location updates are running (mirrors startUpdatingLocation/stopUpdatingLocation).
+    private var locationRunning = false
+    /// Tracking's own device-motion updates are running.
+    private var motionRunning = false
+    private var lastFix: LocationSnapshot?
+    private var lastMotion: MotionSample?
+    /// Observers of every device-motion sample (tracking or standalone); used by getCurrentReadings.
+    private var motionTaps: [UUID: (MotionSample) -> Void] = [:]
 
     // Main thread only.
+    private var standaloneMotionCount = 0
     private var pendingAuth: (() -> Void)?
     private var activeObserver: NSObjectProtocol?
 
@@ -113,17 +122,29 @@ func dsLog(_ message: String) {
                 self.harsh = nil
                 self.active = false
                 self.sessionId = nil
+                self.locationRunning = false
+                self.motionRunning = false
             }
             self.manager.stopUpdatingLocation()
-            self.motionManager.stopDeviceMotionUpdates()
+            if self.standaloneMotionCount == 0 { self.motionManager.stopDeviceMotionUpdates() }
             self.defaults.removeObject(forKey: DrivingSensors.stateKey)
             completion()
         }
     }
 
-    func status() -> (active: Bool, sessionId: String?, inTrip: Bool, buffered: Int) {
-        let s = work.sync { (active, sessionId, trip.inTrip) }
-        return (s.0, s.1, s.2, store?.count() ?? 0)
+    struct Status {
+        var active: Bool
+        var serviceRunning: Bool
+        var lastLocation: LocationSnapshot?
+        var sessionId: String?
+        var inTrip: Bool
+        var buffered: Int
+    }
+
+    func status() -> Status {
+        let s = work.sync { (active, locationRunning, lastFix, sessionId, trip.inTrip) }
+        return Status(active: s.0, serviceRunning: s.1, lastLocation: s.2, sessionId: s.3, inTrip: s.4,
+                      buffered: store?.count() ?? 0)
     }
 
     private func begin(sessionId: String, options: TrackingOptions) {
@@ -148,6 +169,7 @@ func dsLog(_ message: String) {
             self.harsh = nil
             self.estimator = SpeedEstimator()
             self.lastLocationTs = nil
+            self.locationRunning = true
             let t = DispatchSource.makeTimerSource(queue: self.work)
             t.schedule(deadline: .now() + DrivingSensors.tickInterval, repeating: DrivingSensors.tickInterval)
             t.setEventHandler { [weak self] in self?.onTick() }
@@ -170,8 +192,21 @@ func dsLog(_ message: String) {
         if inTrip {
             startMotion()
         } else {
-            motionManager.stopDeviceMotionUpdates()
+            work.sync { motionRunning = false }
+            if standaloneMotionCount == 0 { motionManager.stopDeviceMotionUpdates() }
         }
+    }
+
+    private static func sample(_ m: CMDeviceMotion, bootOffset: TimeInterval) -> MotionSample {
+        let a = m.userAcceleration, g = m.gravity
+        return MotionSample(ts: Int64((m.timestamp + bootOffset) * 1000),
+                            ax: a.x * gToMps2, ay: a.y * gToMps2, az: a.z * gToMps2,
+                            gx: g.x * gToMps2, gy: g.y * gToMps2, gz: g.z * gToMps2)
+    }
+
+    /// Work queue: fan a sample out to observers.
+    private func notifyTaps(_ s: MotionSample) {
+        for tap in motionTaps.values { tap(s) }
     }
 
     private func startMotion() {
@@ -182,15 +217,14 @@ func dsLog(_ message: String) {
         let hz = work.sync { options.accelSampleHz }
         motionManager.deviceMotionUpdateInterval = 1.0 / hz
         let bootOffset = Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime
+        work.sync { motionRunning = true }
         motionManager.startDeviceMotionUpdates(to: motionQueue) { [weak self] motion, _ in
             guard let self, let m = motion else { return }
-            let ts = Int64((m.timestamp + bootOffset) * 1000)
-            let a = m.userAcceleration, g = m.gravity
+            let s = DrivingSensors.sample(m, bootOffset: bootOffset)
             self.work.async {
-                self.harsh?.onAccel(
-                    ts: ts,
-                    ax: a.x * gToMps2, ay: a.y * gToMps2, az: a.z * gToMps2,
-                    gx: g.x * gToMps2, gy: g.y * gToMps2, gz: g.z * gToMps2)
+                self.lastMotion = s
+                self.harsh?.onAccel(ts: s.ts, ax: s.ax, ay: s.ay, az: s.az, gx: s.gx, gy: s.gy, gz: s.gz)
+                self.notifyTaps(s)
             }
         }
     }
@@ -206,6 +240,7 @@ func dsLog(_ message: String) {
     private func process(_ locations: [CLLocation]) {
         guard active, let session = sessionId else { return }
         for loc in locations where loc.horizontalAccuracy >= 0 {
+            lastFix = LocationSnapshot(loc)
             let ts = Int64(loc.timestamp.timeIntervalSince1970 * 1000)
             let c = loc.coordinate
             let speed = estimator.speed(ts: ts, lat: c.latitude, lon: c.longitude, platformSpeed: loc.speed)
@@ -250,6 +285,90 @@ func dsLog(_ message: String) {
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         dsLog("location error: \(error.localizedDescription)")
+    }
+
+    // MARK: - Readings
+
+    func lastReadings() -> [String: Any] {
+        let r = work.sync { (lastFix, lastMotion) }
+        return SensorReadings.dictionary(location: r.0, motion: r.1?.snapshot())
+    }
+
+    /// One fresh fix (dedicated manager) plus a short motion sample, in parallel. Does not touch
+    /// tracking state and never writes to the buffer. All joining happens on the main thread.
+    func currentReadings(timeoutMs: Double?, motionSampleMs: Double?,
+                         completion: @escaping (Result<[String: Any], DrivingSensorsError>) -> Void) {
+        DispatchQueue.main.async {
+            guard CLLocationManager.locationServicesEnabled() else {
+                return completion(.failure(.init(message: "Location services are disabled", code: "LOCATION_DISABLED")))
+            }
+            guard self.hasLocationPermission() else {
+                return completion(.failure(.init(message: "Location permission not granted", code: "PERMISSION_DENIED")))
+            }
+            let timeout = SensorReadings.clamp(timeoutMs, default: 10_000, min: 1_000, max: 60_000)
+            let window = SensorReadings.clamp(motionSampleMs, default: 1_000, min: 100, max: 5_000)
+
+            var location: LocationSnapshot?
+            var motion: MotionSnapshot?
+            var pending = 2
+            let partDone = {
+                pending -= 1
+                if pending == 0 {
+                    completion(.success(SensorReadings.dictionary(location: location, motion: motion)))
+                }
+            }
+
+            // (a) location
+            let lm = CLLocationManager()
+            var delegate: OneShotLocationDelegate?
+            delegate = OneShotLocationDelegate { loc in
+                lm.delegate = nil
+                location = loc.map { LocationSnapshot($0) }
+                partDone()
+            }
+            lm.delegate = delegate
+            lm.desiredAccuracy = kCLLocationAccuracyBest
+            lm.requestLocation()
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout / 1000) {
+                if let d = delegate {
+                    lm.stopUpdatingLocation()
+                    d.finish(nil)
+                }
+                delegate = nil
+            }
+
+            // (b) motion
+            guard self.motionManager.isDeviceMotionAvailable else { return partDone() }
+            final class Box { var window = MotionWindow() }
+            let box = Box()
+            let tapId = UUID()
+            let trackingMotion = self.work.sync { () -> Bool in
+                self.motionTaps[tapId] = { box.window.add($0) }
+                return self.motionRunning
+            }
+            self.standaloneMotionCount += 1
+            if !trackingMotion && self.standaloneMotionCount == 1 {
+                self.motionManager.deviceMotionUpdateInterval = 1.0 / 50
+                let bootOffset = Date().timeIntervalSince1970 - ProcessInfo.processInfo.systemUptime
+                self.motionManager.startDeviceMotionUpdates(to: self.motionQueue) { [weak self] m, _ in
+                    guard let self, let m else { return }
+                    let s = DrivingSensors.sample(m, bootOffset: bootOffset)
+                    self.work.async { self.notifyTaps(s) }
+                }
+            }
+            self.work.asyncAfter(deadline: .now() + window / 1000) {
+                self.motionTaps.removeValue(forKey: tapId)
+                let snap = box.window.snapshot
+                DispatchQueue.main.async {
+                    self.standaloneMotionCount -= 1
+                    if self.standaloneMotionCount == 0, !self.work.sync(execute: { self.motionRunning }) {
+                        self.motionManager.stopDeviceMotionUpdates()
+                    }
+                    motion = snap
+                    partDone()
+                }
+            }
+        }
     }
 
     // MARK: - Buffer

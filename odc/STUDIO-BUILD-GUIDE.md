@@ -84,3 +84,41 @@ Optional: run `SyncFromDevice` from the app's On Application Resume handler.
 2. "Plugin available" must be **True**. If it's False (`PLUGIN_NOT_AVAILABLE`), the plugin wasn't included in the build. Check the build log for `driving-sensors`.
 3. Tap 1, then 2 (choose "Allow all the time"), then Start tracking. A "Trip recording active" notification should appear.
 4. Drive (see the field-test checklist in `example-app/README.md`), then open the app and tap Sync now.
+
+## Upgrading the library to v0.1.1
+
+v0.1.1 adds `serviceRunning` and `lastLocation` to the status plus two new calls, `getLastReadings` and `getCurrentReadings`. Do these steps in ODC Studio, in order.
+
+### In the mobile library `DrivingSensorsPlugin`
+1. Open **Extensibility configuration** and change the plugin source to `"npm": "https://github.com/HPdeVries/driving-sensors#v0.1.1"` (paste `odc/extensibility-configuration.fixed-texts.json` again if you prefer; only that line differs). Make sure the `v0.1.1` tag exists on GitHub with `dist/` committed.
+2. Add the three new **public** structures from `odc/structures.md` (attribute names are case-sensitive):
+   - `LocationReading`: `ts` (Long Integer), `lat`, `lon`, `speedMps`, `accuracyM` (all Decimal).
+   - `MotionReading`: `ts` (Long Integer), `ax`, `ay`, `az`, `gx`, `gy`, `gz`, `horizontalMps2`, `peakHorizontalMps2` (all Decimal), `samples` (Integer).
+   - `SensorReadings`: `hasLocation` (Boolean), `location` (LocationReading), `hasMotion` (Boolean), `motion` (MotionReading).
+3. Extend the existing structure `TrackingStatus` with `serviceRunning` (Boolean) and `lastLocation` (LocationReading). A missing `lastLocation` deserializes to a record with `ts = 0`.
+4. `GetStatus` needs **no change** to its JS (it stringifies the whole result). Optionally update the comment from `odc/client-actions/GetStatus.js`. Its existing `Status` output (TrackingStatus, JSON Deserialize of `StatusJson`) now carries the new fields automatically.
+5. Add client action **GetLastReadings** (public):
+   - Outputs: `Success` (Boolean), `ErrorCode` (Text), `ErrorMessage` (Text), `ReadingsJson` (Text), `Readings` (SensorReadings).
+   - Flow: JavaScript node with the body of `odc/client-actions/GetLastReadings.js`, then an **If** on `Success`. True: **JSON Deserialize** with JSON String = `ReadingsJson`, Data Type = `SensorReadings`, and assign its output to `Readings`. False: go straight to End (`Readings` stays at its defaults).
+   - Give the JS node the output parameters `Success`, `ErrorCode`, `ErrorMessage`, `ReadingsJson`, and no inputs.
+6. Add client action **GetCurrentReadings** (public), built the same way from `odc/client-actions/GetCurrentReadings.js`:
+   - Inputs: `TimeoutMs` (Integer), `MotionSampleMs` (Integer). Use `0` for the plugin default. Keep them **Integer**, not Long Integer.
+   - Outputs: as GetLastReadings, including the typed `Readings` (SensorReadings) filled by JSON Deserialize of `ReadingsJson` when `Success`.
+7. **Publish** the library (a new version).
+
+### In DriveMe
+1. **Manage dependencies**: update `DrivingSensorsPlugin` to the new version and tick the new structures and the two new client actions.
+2. Publish DriveMe and make a new **MABS build** (the plugin source changed, so a full native build is needed, not just a publish). Reinstall on the device.
+
+### DriveMe suggestion: Readings card and status additions
+Local variables on `Home`: `Readings` (SensorReadings).
+
+- **Status card**: add `Status.serviceRunning`, and, when `Status.lastLocation.ts <> 0`, the last location time (`AddSeconds(NewDateTime(1970,1,1,0,0,0), LongIntegerToInteger(Status.lastLocation.ts / 1000))`), speed (`Status.lastLocation.speedMps * 3.6` km/h) and accuracy (`Status.lastLocation.accuracyM` m).
+- **Readings card** with two buttons. Each calls its action, shows `ErrorCode + ": " + ErrorMessage` as feedback when Success is false, and otherwise assigns `Readings = <action>.Readings`:
+
+  | Button | Calls |
+  |---|---|
+  | Last reading | `GetLastReadings` |
+  | Current reading | `GetCurrentReadings` with TimeoutMs = `0`, MotionSampleMs = `0` (a fresh fix can take several seconds: disable the button while it runs) |
+
+- The card shows, inside `If(Readings.hasLocation, ...)`: latitude `Readings.location.lat`, longitude `Readings.location.lon`, speed `Readings.location.speedMps * 3.6` km/h, accuracy `Readings.location.accuracyM` m. Inside `If(Readings.hasMotion, ...)`: horizontal acceleration `Readings.motion.horizontalMps2` m/s2 and peak `Readings.motion.peakHorizontalMps2` m/s2. Otherwise show "No location" / "No motion data".

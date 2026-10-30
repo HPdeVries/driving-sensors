@@ -57,9 +57,35 @@ async function refreshStatus() {
   try {
     const s = await DrivingSensors.getStatus();
     $('status').textContent = JSON.stringify(s) + '  @' + new Date().toLocaleTimeString();
+    const l = s.lastLocation;
+    $('statusDetail').textContent =
+      'serviceRunning: ' + s.serviceRunning + ' | lastLocation: ' +
+      (l ? fmtTime(l.ts) + ' ' + kmh(l.speedMps) + ' km/h, acc ' + (l.accuracyM != null ? l.accuracyM.toFixed(1) : '?') + ' m' : 'none');
   } catch (e) {
     $('status').textContent = 'ERROR ' + (e.code || '') + ' ' + e.message;
   }
+}
+
+async function showReadings(fn, label) {
+  $('readingsDetail').textContent = 'working...';
+  const r = await call(label, fn);
+  if (!r) {
+    $('readingsDetail').textContent = 'error, see log';
+    return;
+  }
+  $('readings').textContent = JSON.stringify(r, null, 1);
+  const parts = [];
+  if (r.location) {
+    const l = r.location;
+    parts.push(
+      `location ${fmtTime(l.ts)}: ${l.lat?.toFixed(5)},${l.lon?.toFixed(5)} ${kmh(l.speedMps)} km/h, acc ${l.accuracyM?.toFixed(1)} m`,
+    );
+  } else parts.push('no location');
+  if (r.motion) {
+    const m = r.motion;
+    parts.push(`motion: horizontal ${m.horizontalMps2?.toFixed(2)} m/s2, peak ${m.peakHorizontalMps2?.toFixed(2)} m/s2 (${m.samples} samples)`);
+  } else parts.push('no motion');
+  $('readingsDetail').textContent = parts.join(' | ');
 }
 
 async function fetchEvents() {
@@ -163,6 +189,8 @@ $('btnStop').onclick = async () => {
   refreshStatus();
 };
 $('btnStatus').onclick = refreshStatus;
+$('btnLast').onclick = () => showReadings(() => DrivingSensors.getLastReadings(), 'getLastReadings');
+$('btnCurrent').onclick = () => showReadings(() => DrivingSensors.getCurrentReadings(), 'getCurrentReadings');
 $('btnFetch').onclick = fetchEvents;
 $('btnAck').onclick = ackFetched;
 $('btnExport').onclick = exportJson;

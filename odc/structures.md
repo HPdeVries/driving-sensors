@@ -39,6 +39,42 @@ Values: `granted`, `denied`, `prompt`, `prompt-with-rationale`.
 | sessionId | Text |
 | inTrip | Boolean |
 | buffered | Integer |
+| serviceRunning | Boolean (v0.1.1) |
+| lastLocation | LocationReading (v0.1.1) |
+
+`lastLocation` is omitted by the plugin when no location is known yet. A missing nested object deserializes to a record with all defaults, so **`lastLocation.ts = 0` means "no last location"**. `serviceRunning` is true while the native tracking service is alive.
+
+### LocationReading (v0.1.1, nested in `TrackingStatus` and `SensorReadings`)
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| ts | Long Integer | epoch ms; 0 = not present |
+| lat | Decimal | |
+| lon | Decimal | |
+| speedMps | Decimal | m/s, multiply by 3.6 for km/h |
+| accuracyM | Decimal | |
+
+### MotionReading (v0.1.1, nested in `SensorReadings`)
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| ts | Long Integer | epoch ms |
+| ax, ay, az | Decimal | accelerometer, m/s2 |
+| gx, gy, gz | Decimal | gyroscope |
+| horizontalMps2 | Decimal | horizontal acceleration magnitude |
+| peakHorizontalMps2 | Decimal | peak horizontal acceleration in the sample window |
+| samples | Integer | number of samples used |
+
+### SensorReadings (v0.1.1, `ReadingsJson` of GetLastReadings / GetCurrentReadings)
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| hasLocation | Boolean | **explicit flag**, set by the client action JS (`hasLocation = !!location`) |
+| location | LocationReading | all defaults when `hasLocation` is False |
+| hasMotion | Boolean | explicit flag |
+| motion | MotionReading | all defaults when `hasMotion` is False |
+
+The plugin omits readings it does not have; ODC cannot tell an omitted value from 0, so always test `hasLocation` / `hasMotion` before using the nested records. (The client action JS adds both flags to `ReadingsJson`, so the plugin does not need to send them.)
 
 ### TrackingOptions (serialize with **JSON Serialize** into `OptionsJson`)
 

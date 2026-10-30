@@ -1,0 +1,35 @@
+{
+  "buildConfigurations": {
+    "capacitor": {
+      "source": {
+        "npm": "https://github.com/HPdeVries/driving-sensors#v0.1.0"
+      }
+    },
+    "buildAction": {
+      "config": "$resources.buildAction.json"
+    }
+  },
+  "pluginConfigurations": {
+    "permissions": {
+      "ios": {
+        "NSLocationWhenInUseUsageDescription": {
+          "description": "$extensibilitySettings.LocationWhenInUseUsageDescription"
+        },
+        "NSLocationAlwaysAndWhenInUseUsageDescription": {
+          "description": "$extensibilitySettings.LocationAlwaysUsageDescription"
+        },
+        "NSMotionUsageDescription": {
+          "description": "$extensibilitySettings.MotionUsageDescription"
+        }
+      },
+      "android": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    }
+  }
+}

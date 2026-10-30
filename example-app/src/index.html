@@ -1,26 +1,82 @@
 <!doctype html>
-<html lang="en" dir="ltr" class="hydrated">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Example Capacitor App</title>
-    <meta
-      name="viewport"
-      content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
-    />
+    <title>Driving Sensors Test</title>
+    <meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="format-detection" content="telephone=no" />
+    <style>
+      :root { color-scheme: light dark; --b: #8884; }
+      body { font-family: -apple-system, system-ui, sans-serif; margin: 0; padding: env(safe-area-inset-top) 12px env(safe-area-inset-bottom); font-size: 14px; }
+      h1 { font-size: 18px; margin: 12px 0 8px; }
+      h2 { font-size: 14px; margin: 14px 0 6px; }
+      section { border: 1px solid var(--b); border-radius: 8px; padding: 8px; margin-bottom: 8px; }
+      button { font-size: 14px; padding: 8px 10px; margin: 2px; border-radius: 6px; border: 1px solid var(--b); }
+      button.primary { background: #0a7; color: #fff; border-color: #0a7; }
+      button.danger { background: #c33; color: #fff; border-color: #c33; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 8px; }
+      .grid label { display: flex; flex-direction: column; font-size: 11px; }
+      .grid input { font-size: 14px; padding: 4px; }
+      pre { white-space: pre-wrap; word-break: break-all; font-size: 11px; margin: 4px 0; max-height: 160px; overflow: auto; }
+      table { border-collapse: collapse; width: 100%; font-size: 11px; }
+      td, th { border-bottom: 1px solid var(--b); padding: 2px 4px; text-align: left; }
+      tr.harsh td { background: #e334; font-weight: bold; font-size: 13px; }
+      .counts span { display: inline-block; margin-right: 10px; }
+      #log { max-height: 120px; }
+    </style>
   </head>
   <body>
-    <main>
-      <h1>Capacitor Test Plugin Project</h1>
-      <p>
-        This project can be used to test out the functionality of your plugin. Nothing in the
-        <em>example-app/</em> folder will be published to npm when using this template, so you can create away!
-      </p>
-      <label for="echoInput">Echo Text:</label>
-      <input type="text" id="echoInput" name="echoInput" value="Hello World!" />
-      <button onclick="testEcho()">Click Me!</button>
-    </main>
+    <h1>Driving Sensors field test</h1>
 
-    <script src="./js/example.js" type="module"></script>
+    <section>
+      <h2>Permissions</h2>
+      <button id="btnCheck">Check permissions</button>
+      <button id="btnLoc">Request location</button>
+      <button id="btnBg">Request background location</button>
+      <button id="btnMotion">Request motion + notifications</button>
+      <pre id="perm">-</pre>
+    </section>
+
+    <section>
+      <h2>Tracking options</h2>
+      <div class="grid">
+        <label>harshBrakeMps2<input id="harshBrakeMps2" type="number" step="0.1" value="3.0" /></label>
+        <label>harshAccelMps2<input id="harshAccelMps2" type="number" step="0.1" value="3.0" /></label>
+        <label>locationIntervalMs<input id="locationIntervalMs" type="number" value="1000" /></label>
+        <label>accelSampleHz<input id="accelSampleHz" type="number" value="50" /></label>
+        <label>tripStartSpeedMps<input id="tripStartSpeedMps" type="number" step="0.1" value="4.2" /></label>
+        <label>tripEndIdleMs<input id="tripEndIdleMs" type="number" value="180000" /></label>
+        <label>minEventGapMs<input id="minEventGapMs" type="number" value="3000" /></label>
+      </div>
+      <button id="btnStart" class="primary">Start tracking</button>
+      <button id="btnStop" class="danger">Stop</button>
+    </section>
+
+    <section>
+      <h2>Status (auto-refresh 5 s)</h2>
+      <button id="btnStatus">Get status</button>
+      <pre id="status">-</pre>
+    </section>
+
+    <section>
+      <h2>Events</h2>
+      <button id="btnFetch">Fetch events</button>
+      <button id="btnAck">Ack fetched</button>
+      <button id="btnExport">Export JSON</button>
+      <button id="btnClear">Clear stored</button>
+      <div id="counts" class="counts"></div>
+      <div id="harshBox"></div>
+      <table>
+        <thead><tr><th>id</th><th>time</th><th>type</th><th>km/h</th><th>peak</th><th>lat,lon</th></tr></thead>
+        <tbody id="events"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Log</h2>
+      <pre id="log"></pre>
+    </section>
+
+    <script src="./js/app.js" type="module"></script>
   </body>
 </html>

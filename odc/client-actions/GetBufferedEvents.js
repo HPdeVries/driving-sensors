@@ -1,0 +1,56 @@
+/*
+ * Client action: GetBufferedEvents
+ * Input parameters:
+ *   AfterId (Long Integer) - return events with id > AfterId (0 = from start)
+ *   Limit (Integer) - max events, plugin caps at 1000; 0 = 500
+ * Output parameters:
+ *   Success (Boolean)
+ *   ErrorCode (Text)
+ *   ErrorMessage (Text)
+ *   EventsJson (Text) - JSON array of TelemetryEvent
+ *   Count (Integer)
+ *   LastId (Long Integer) - id of last returned event, 0 if none
+ *
+ * JS node body (async JS node: ODC waits for $resolve()).
+ */
+
+function getPlugin() {
+  const w = window;
+  if (w.CapacitorPlugins && w.CapacitorPlugins.DrivingSensors) return w.CapacitorPlugins.DrivingSensors;
+  if (w.Capacitor && w.Capacitor.Plugins && w.Capacitor.Plugins.DrivingSensors) return w.Capacitor.Plugins.DrivingSensors;
+  // Last resort (UNVERIFIED in MABS 12): proxy for a natively registered plugin.
+  try {
+    if (w.Capacitor && typeof w.Capacitor.registerPlugin === "function" &&
+        typeof w.Capacitor.isNativePlatform === "function" && w.Capacitor.isNativePlatform()) {
+      return w.Capacitor.registerPlugin("DrivingSensors");
+    }
+  } catch (e) { /* ignore */ }
+  return null;
+}
+function fail(code, message) {
+  $parameters.Success = false;
+  $parameters.ErrorCode = code || "UNKNOWN";
+  $parameters.ErrorMessage = message || "";
+}
+
+async function run() {
+  $parameters.Success = false;
+  $parameters.ErrorCode = "";
+  $parameters.ErrorMessage = "";
+  const plugin = getPlugin();
+  if (!plugin) {
+    fail("PLUGIN_NOT_AVAILABLE", "DrivingSensors plugin not found. Run in a Capacitor (MABS 12) native build, not in a browser preview or Cordova build.");
+    return;
+  }
+  try {
+    const r = await plugin.getBufferedEvents({ afterId: $parameters.AfterId || 0, limit: $parameters.Limit || 500 });
+    const events = (r && r.events) || [];
+    $parameters.EventsJson = JSON.stringify(events);
+    $parameters.Count = events.length;
+    $parameters.LastId = events.length ? events[events.length - 1].id : 0;
+    $parameters.Success = true;
+  } catch (e) {
+    fail(e && e.code, e && e.message ? e.message : String(e));
+  }
+}
+run().then(() => $resolve(), () => $resolve());

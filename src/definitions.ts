@@ -52,6 +52,9 @@ export interface DrivingSensorsPlugin {
    * `hasLocation: false`.
    */
   getCurrentReadings(options?: { timeoutMs?: number; motionSampleMs?: number }): Promise<SensorReadings>;
+
+  /** Version of the native plugin code compiled into the app (not the JS bundle), plus the platform. */
+  getPluginVersion(): Promise<{ version: string; platform: 'android' | 'ios' | 'web' }>;
 }
 
 export interface LocationReading {

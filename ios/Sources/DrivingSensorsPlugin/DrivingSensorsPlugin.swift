@@ -18,7 +18,8 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getBufferedEvents", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "ackEvents", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getLastReadings", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "getCurrentReadings", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "getCurrentReadings", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
     ]
     private let implementation = DrivingSensors()
 
@@ -72,6 +73,10 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
             if s.active, let id = s.sessionId { result["sessionId"] = id }
             call.resolve(result)
         }
+    }
+
+    @objc func getPluginVersion(_ call: CAPPluginCall) {
+        call.resolve(["version": DrivingSensorsVersion.current, "platform": "ios"])
     }
 
     @objc func getLastReadings(_ call: CAPPluginCall) {

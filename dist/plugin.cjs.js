@@ -6,6 +6,8 @@ const DrivingSensors = core.registerPlugin('DrivingSensors', {
     web: () => Promise.resolve().then(function () { return web; }).then((m) => new m.DrivingSensorsWeb()),
 });
 
+// Kept in sync with package.json by scripts/sync-version.mjs. Do not edit by hand.
+const PLUGIN_VERSION = '0.1.2';
 class DrivingSensorsWeb extends core.WebPlugin {
     async checkPermissions() {
         throw this.unavailable('DrivingSensors is only available on Android and iOS.');
@@ -33,6 +35,9 @@ class DrivingSensorsWeb extends core.WebPlugin {
     }
     async getCurrentReadings() {
         throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+    }
+    async getPluginVersion() {
+        return { version: PLUGIN_VERSION, platform: 'web' };
     }
 }
 

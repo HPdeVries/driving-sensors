@@ -139,6 +139,16 @@
           "SensorReadings"
         ],
         "slug": "getcurrentreadings"
+      },
+      {
+        "name": "getPluginVersion",
+        "signature": "() => Promise<{ version: string; platform: 'android' | 'ios' | 'web'; }>",
+        "parameters": [],
+        "returns": "Promise<{ version: string; platform: 'android' | 'ios' | 'web'; }>",
+        "tags": [],
+        "docs": "Version of the native plugin code compiled into the app (not the JS bundle), plus the platform.",
+        "complexTypes": [],
+        "slug": "getpluginversion"
       }
     ],
     "properties": []

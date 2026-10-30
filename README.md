@@ -26,25 +26,195 @@ npx cap sync
 
 <docgen-index>
 
-* [`echo(...)`](#echo)
+* [`checkPermissions()`](#checkpermissions)
+* [`requestPermissions(...)`](#requestpermissions)
+* [`startTracking(...)`](#starttracking)
+* [`stopTracking()`](#stoptracking)
+* [`getStatus()`](#getstatus)
+* [`getBufferedEvents(...)`](#getbufferedevents)
+* [`ackEvents(...)`](#ackevents)
+* [Interfaces](#interfaces)
+* [Type Aliases](#type-aliases)
 
 </docgen-index>
 
 <docgen-api>
 <!--Update the source file JSDoc comments and rerun docgen to update the docs below-->
 
-### echo(...)
+### checkPermissions()
 
 ```typescript
-echo(options: { value: string; }) => Promise<{ value: string; }>
+checkPermissions() => Promise<PermissionStatus>
 ```
 
-| Param         | Type                            |
-| ------------- | ------------------------------- |
-| **`options`** | <code>{ value: string; }</code> |
+Check the current state of the permissions the plugin needs.
 
-**Returns:** <code>Promise&lt;{ value: string; }&gt;</code>
+**Returns:** <code>Promise&lt;<a href="#permissionstatus">PermissionStatus</a>&gt;</code>
 
 --------------------
+
+
+### requestPermissions(...)
+
+```typescript
+requestPermissions(options?: { permissions?: DrivingSensorsPermissionType[] | undefined; } | undefined) => Promise<PermissionStatus>
+```
+
+Request permissions. On Android, `backgroundLocation` can only be granted
+after `location` is granted, so request them in two separate calls.
+Omit `permissions` to request `location`, `motion` and `notifications`.
+
+| Param         | Type                                                           |
+| ------------- | -------------------------------------------------------------- |
+| **`options`** | <code>{ permissions?: DrivingSensorsPermissionType[]; }</code> |
+
+**Returns:** <code>Promise&lt;<a href="#permissionstatus">PermissionStatus</a>&gt;</code>
+
+--------------------
+
+
+### startTracking(...)
+
+```typescript
+startTracking(options?: TrackingOptions | undefined) => Promise<{ sessionId: string; }>
+```
+
+Start background tracking. Idempotent: if tracking is already active,
+resolves with the current session id and ignores the new options.
+
+| Param         | Type                                                        |
+| ------------- | ----------------------------------------------------------- |
+| **`options`** | <code><a href="#trackingoptions">TrackingOptions</a></code> |
+
+**Returns:** <code>Promise&lt;{ sessionId: string; }&gt;</code>
+
+--------------------
+
+
+### stopTracking()
+
+```typescript
+stopTracking() => Promise<void>
+```
+
+Stop tracking. Emits TRIP_END if a trip is in progress. Buffered events are kept.
+
+--------------------
+
+
+### getStatus()
+
+```typescript
+getStatus() => Promise<TrackingStatus>
+```
+
+Current tracking state and number of events waiting in the native buffer.
+
+**Returns:** <code>Promise&lt;<a href="#trackingstatus">TrackingStatus</a>&gt;</code>
+
+--------------------
+
+
+### getBufferedEvents(...)
+
+```typescript
+getBufferedEvents(options?: { afterId?: number | undefined; limit?: number | undefined; } | undefined) => Promise<{ events: TelemetryEvent[]; }>
+```
+
+Read buffered events in ascending id order. Does not remove them; call `ackEvents` afterwards.
+
+| Param         | Type                                               |
+| ------------- | -------------------------------------------------- |
+| **`options`** | <code>{ afterId?: number; limit?: number; }</code> |
+
+**Returns:** <code>Promise&lt;{ events: TelemetryEvent[]; }&gt;</code>
+
+--------------------
+
+
+### ackEvents(...)
+
+```typescript
+ackEvents(options: { upToId: number; }) => Promise<void>
+```
+
+Delete all buffered events with `id &lt;= upToId`.
+
+| Param         | Type                             |
+| ------------- | -------------------------------- |
+| **`options`** | <code>{ upToId: number; }</code> |
+
+--------------------
+
+
+### Interfaces
+
+
+#### PermissionStatus
+
+| Prop                     | Type                                                        | Description                                                                                           |
+| ------------------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **`location`**           | <code><a href="#permissionstate">PermissionState</a></code> | Foreground (when-in-use) location.                                                                    |
+| **`backgroundLocation`** | <code><a href="#permissionstate">PermissionState</a></code> | Background location (Android ACCESS_BACKGROUND_LOCATION, iOS "Always").                               |
+| **`motion`**             | <code><a href="#permissionstate">PermissionState</a></code> | Motion sensors. Android has no runtime permission for these and always reports `granted`.             |
+| **`notifications`**      | <code><a href="#permissionstate">PermissionState</a></code> | Notifications (Android 13+, needed for the foreground-service notification). Always `granted` on iOS. |
+
+
+#### TrackingOptions
+
+| Prop                     | Type                | Description                                                                     |
+| ------------------------ | ------------------- | ------------------------------------------------------------------------------- |
+| **`harshBrakeMps2`**     | <code>number</code> | Horizontal deceleration threshold for HARSH_BRAKE, m/s², positive. Default 3.0. |
+| **`harshAccelMps2`**     | <code>number</code> | Horizontal acceleration threshold for HARSH_ACCEL, m/s², positive. Default 3.0. |
+| **`locationIntervalMs`** | <code>number</code> | Location interval while a trip is in progress, ms. Default 1000.                |
+| **`accelSampleHz`**      | <code>number</code> | Accelerometer sample rate while a trip is in progress, Hz. Default 50.          |
+| **`tripStartSpeedMps`**  | <code>number</code> | Speed that starts a trip, m/s. Default 4.2 (~15 km/h).                          |
+| **`tripEndIdleMs`**      | <code>number</code> | Time below `tripStartSpeedMps` after which the trip ends, ms. Default 180000.   |
+| **`minEventGapMs`**      | <code>number</code> | Minimum time between two harsh events, ms. Default 3000.                        |
+| **`notificationTitle`**  | <code>string</code> | Android foreground-service notification title. Default "Trip recording active". |
+| **`notificationText`**   | <code>string</code> | Android foreground-service notification text. Default "Recording driving data". |
+
+
+#### TrackingStatus
+
+| Prop            | Type                 | Description                                      |
+| --------------- | -------------------- | ------------------------------------------------ |
+| **`active`**    | <code>boolean</code> |                                                  |
+| **`sessionId`** | <code>string</code>  |                                                  |
+| **`inTrip`**    | <code>boolean</code> |                                                  |
+| **`buffered`**  | <code>number</code>  | Number of events currently in the native buffer. |
+
+
+#### TelemetryEvent
+
+| Prop            | Type                                                              | Description                                                                |
+| --------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| **`id`**        | <code>number</code>                                               | Monotonically increasing, assigned by the native buffer.                   |
+| **`ts`**        | <code>number</code>                                               | Epoch milliseconds, native timestamp.                                      |
+| **`type`**      | <code><a href="#telemetryeventtype">TelemetryEventType</a></code> |                                                                            |
+| **`sessionId`** | <code>string</code>                                               |                                                                            |
+| **`lat`**       | <code>number</code>                                               |                                                                            |
+| **`lon`**       | <code>number</code>                                               |                                                                            |
+| **`speedMps`**  | <code>number</code>                                               |                                                                            |
+| **`accuracyM`** | <code>number</code>                                               |                                                                            |
+| **`peakMps2`**  | <code>number</code>                                               | Peak horizontal acceleration magnitude for HARSH_* events, m/s², positive. |
+
+
+### Type Aliases
+
+
+#### PermissionState
+
+<code>'prompt' | 'prompt-with-rationale' | 'granted' | 'denied'</code>
+
+
+#### DrivingSensorsPermissionType
+
+<code>'location' | 'backgroundLocation' | 'motion' | 'notifications'</code>
+
+
+#### TelemetryEventType
+
+<code>'LOCATION' | 'HARSH_BRAKE' | 'HARSH_ACCEL' | 'TRIP_START' | 'TRIP_END'</code>
 
 </docgen-api>

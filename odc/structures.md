@@ -59,8 +59,8 @@ Values: `granted`, `denied`, `prompt`, `prompt-with-rationale`.
 | Attribute | ODC type | Notes |
 |---|---|---|
 | ts | Long Integer | epoch ms |
-| ax, ay, az | Decimal | accelerometer, m/s2 |
-| gx, gy, gz | Decimal | gyroscope |
+| ax, ay, az | Decimal | linear acceleration (gravity removed), m/s2, device axes |
+| gx, gy, gz | Decimal | gravity vector, m/s2, device axes (phone orientation) |
 | horizontalMps2 | Decimal | horizontal acceleration magnitude |
 | peakHorizontalMps2 | Decimal | peak horizontal acceleration in the sample window |
 | samples | Integer | number of samples used |

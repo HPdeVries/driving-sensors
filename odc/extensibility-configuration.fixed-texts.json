@@ -1,0 +1,26 @@
+{
+  "buildConfigurations": {
+    "capacitor": {
+      "source": {
+        "npm": "https://github.com/HPdeVries/driving-sensors#v0.1.0"
+      }
+    }
+  },
+  "pluginConfigurations": {
+    "permissions": {
+      "ios": {
+        "NSLocationWhenInUseUsageDescription": { "description": "Your location is used to record your trips." },
+        "NSLocationAlwaysAndWhenInUseUsageDescription": { "description": "Location in the background is used to record trips while the app is closed." },
+        "NSMotionUsageDescription": { "description": "Motion sensors are used to detect harsh braking and acceleration." }
+      },
+      "android": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
+    }
+  }
+}

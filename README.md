@@ -33,6 +33,8 @@ npx cap sync
 * [`getStatus()`](#getstatus)
 * [`getBufferedEvents(...)`](#getbufferedevents)
 * [`ackEvents(...)`](#ackevents)
+* [`getLastReadings()`](#getlastreadings)
+* [`getCurrentReadings(...)`](#getcurrentreadings)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
 
@@ -147,6 +149,40 @@ Delete all buffered events with `id &lt;= upToId`.
 --------------------
 
 
+### getLastReadings()
+
+```typescript
+getLastReadings() => Promise<SensorReadings>
+```
+
+Last readings the tracking engine received. Instant; never switches sensors on.
+Location updates arrive whenever tracking is active; motion only while a trip is in progress.
+
+**Returns:** <code>Promise&lt;<a href="#sensorreadings">SensorReadings</a>&gt;</code>
+
+--------------------
+
+
+### getCurrentReadings(...)
+
+```typescript
+getCurrentReadings(options?: { timeoutMs?: number | undefined; motionSampleMs?: number | undefined; } | undefined) => Promise<SensorReadings>
+```
+
+Take a fresh reading: one high-accuracy location fix and a short motion-sensor sample.
+Works whether or not tracking is active. Requires foreground location permission
+(rejects with `PERMISSION_DENIED`). If no fix arrives within `timeoutMs`, resolves with
+`hasLocation: false`.
+
+| Param         | Type                                                          |
+| ------------- | ------------------------------------------------------------- |
+| **`options`** | <code>{ timeoutMs?: number; motionSampleMs?: number; }</code> |
+
+**Returns:** <code>Promise&lt;<a href="#sensorreadings">SensorReadings</a>&gt;</code>
+
+--------------------
+
+
 ### Interfaces
 
 
@@ -177,12 +213,25 @@ Delete all buffered events with `id &lt;= upToId`.
 
 #### TrackingStatus
 
-| Prop            | Type                 | Description                                      |
-| --------------- | -------------------- | ------------------------------------------------ |
-| **`active`**    | <code>boolean</code> |                                                  |
-| **`sessionId`** | <code>string</code>  |                                                  |
-| **`inTrip`**    | <code>boolean</code> |                                                  |
-| **`buffered`**  | <code>number</code>  | Number of events currently in the native buffer. |
+| Prop                 | Type                                                        | Description                                                                                          |
+| -------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **`active`**         | <code>boolean</code>                                        | Tracking was requested (persisted state). See `serviceRunning` for whether it actually runs.         |
+| **`serviceRunning`** | <code>boolean</code>                                        | The native tracking engine is running right now (Android foreground service / iOS location updates). |
+| **`lastLocation`**   | <code><a href="#locationreading">LocationReading</a></code> | Last location fix the tracking engine received, if any since it started.                             |
+| **`sessionId`**      | <code>string</code>                                         |                                                                                                      |
+| **`inTrip`**         | <code>boolean</code>                                        |                                                                                                      |
+| **`buffered`**       | <code>number</code>                                         | Number of events currently in the native buffer.                                                     |
+
+
+#### LocationReading
+
+| Prop            | Type                | Description          |
+| --------------- | ------------------- | -------------------- |
+| **`ts`**        | <code>number</code> | Epoch ms of the fix. |
+| **`lat`**       | <code>number</code> |                      |
+| **`lon`**       | <code>number</code> |                      |
+| **`speedMps`**  | <code>number</code> |                      |
+| **`accuracyM`** | <code>number</code> |                      |
 
 
 #### TelemetryEvent
@@ -198,6 +247,32 @@ Delete all buffered events with `id &lt;= upToId`.
 | **`speedMps`**  | <code>number</code>                                               |                                                                            |
 | **`accuracyM`** | <code>number</code>                                               |                                                                            |
 | **`peakMps2`**  | <code>number</code>                                               | Peak horizontal acceleration magnitude for HARSH_* events, m/s², positive. |
+
+
+#### SensorReadings
+
+| Prop              | Type                                                        |
+| ----------------- | ----------------------------------------------------------- |
+| **`hasLocation`** | <code>boolean</code>                                        |
+| **`location`**    | <code><a href="#locationreading">LocationReading</a></code> |
+| **`hasMotion`**   | <code>boolean</code>                                        |
+| **`motion`**      | <code><a href="#motionreading">MotionReading</a></code>     |
+
+
+#### MotionReading
+
+| Prop                     | Type                | Description                                                                                  |
+| ------------------------ | ------------------- | -------------------------------------------------------------------------------------------- |
+| **`ts`**                 | <code>number</code> | Epoch ms of the (last) sample.                                                               |
+| **`ax`**                 | <code>number</code> | Linear acceleration (gravity removed), m/s², device axes.                                    |
+| **`ay`**                 | <code>number</code> |                                                                                              |
+| **`az`**                 | <code>number</code> |                                                                                              |
+| **`gx`**                 | <code>number</code> | Gravity vector, m/s², device axes.                                                           |
+| **`gy`**                 | <code>number</code> |                                                                                              |
+| **`gz`**                 | <code>number</code> |                                                                                              |
+| **`horizontalMps2`**     | <code>number</code> | Horizontal acceleration magnitude of this sample, m/s² (same projection as harsh detection). |
+| **`peakHorizontalMps2`** | <code>number</code> | Highest horizontal magnitude in the sampled window. `getCurrentReadings` only.               |
+| **`samples`**            | <code>number</code> | Number of samples in the window. `getCurrentReadings` only.                                  |
 
 
 ### Type Aliases

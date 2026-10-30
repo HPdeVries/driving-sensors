@@ -109,6 +109,36 @@
         "docs": "Delete all buffered events with `id <= upToId`.",
         "complexTypes": [],
         "slug": "ackevents"
+      },
+      {
+        "name": "getLastReadings",
+        "signature": "() => Promise<SensorReadings>",
+        "parameters": [],
+        "returns": "Promise<SensorReadings>",
+        "tags": [],
+        "docs": "Last readings the tracking engine received. Instant; never switches sensors on.\nLocation updates arrive whenever tracking is active; motion only while a trip is in progress.",
+        "complexTypes": [
+          "SensorReadings"
+        ],
+        "slug": "getlastreadings"
+      },
+      {
+        "name": "getCurrentReadings",
+        "signature": "(options?: { timeoutMs?: number | undefined; motionSampleMs?: number | undefined; } | undefined) => Promise<SensorReadings>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ timeoutMs?: number | undefined; motionSampleMs?: number | undefined; } | undefined"
+          }
+        ],
+        "returns": "Promise<SensorReadings>",
+        "tags": [],
+        "docs": "Take a fresh reading: one high-accuracy location fix and a short motion-sensor sample.\nWorks whether or not tracking is active. Requires foreground location permission\n(rejects with `PERMISSION_DENIED`). If no fix arrives within `timeoutMs`, resolves with\n`hasLocation: false`.",
+        "complexTypes": [
+          "SensorReadings"
+        ],
+        "slug": "getcurrentreadings"
       }
     ],
     "properties": []
@@ -241,9 +271,25 @@
         {
           "name": "active",
           "tags": [],
-          "docs": "",
+          "docs": "Tracking was requested (persisted state). See `serviceRunning` for whether it actually runs.",
           "complexTypes": [],
           "type": "boolean"
+        },
+        {
+          "name": "serviceRunning",
+          "tags": [],
+          "docs": "The native tracking engine is running right now (Android foreground service / iOS location updates).",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "lastLocation",
+          "tags": [],
+          "docs": "Last location fix the tracking engine received, if any since it started.",
+          "complexTypes": [
+            "LocationReading"
+          ],
+          "type": "LocationReading"
         },
         {
           "name": "sessionId",
@@ -265,6 +311,50 @@
           "docs": "Number of events currently in the native buffer.",
           "complexTypes": [],
           "type": "number"
+        }
+      ]
+    },
+    {
+      "name": "LocationReading",
+      "slug": "locationreading",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "ts",
+          "tags": [],
+          "docs": "Epoch ms of the fix.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "lat",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "lon",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "speedMps",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "accuracyM",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
         }
       ]
     },
@@ -337,6 +427,126 @@
           "name": "peakMps2",
           "tags": [],
           "docs": "Peak horizontal acceleration magnitude for HARSH_* events, m/s², positive.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        }
+      ]
+    },
+    {
+      "name": "SensorReadings",
+      "slug": "sensorreadings",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "hasLocation",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "location",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [
+            "LocationReading"
+          ],
+          "type": "LocationReading"
+        },
+        {
+          "name": "hasMotion",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "motion",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [
+            "MotionReading"
+          ],
+          "type": "MotionReading"
+        }
+      ]
+    },
+    {
+      "name": "MotionReading",
+      "slug": "motionreading",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "ts",
+          "tags": [],
+          "docs": "Epoch ms of the (last) sample.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "ax",
+          "tags": [],
+          "docs": "Linear acceleration (gravity removed), m/s², device axes.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "ay",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "az",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "gx",
+          "tags": [],
+          "docs": "Gravity vector, m/s², device axes.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "gy",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "gz",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "horizontalMps2",
+          "tags": [],
+          "docs": "Horizontal acceleration magnitude of this sample, m/s² (same projection as harsh detection).",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "peakHorizontalMps2",
+          "tags": [],
+          "docs": "Highest horizontal magnitude in the sampled window. `getCurrentReadings` only.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "samples",
+          "tags": [],
+          "docs": "Number of samples in the window. `getCurrentReadings` only.",
           "complexTypes": [],
           "type": "number | undefined"
         }

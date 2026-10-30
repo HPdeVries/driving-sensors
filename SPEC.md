@@ -71,3 +71,24 @@ Table `events`:
 | notifications | POST_NOTIFICATIONS (API 33+; below that `granted`) | always `granted` |
 
 iOS: requesting `location` calls `requestWhenInUseAuthorization`; requesting `backgroundLocation` calls `requestAlwaysAuthorization`. Resolve the call when the authorization delegate reports a change (or immediately if the state is already determined and cannot change).
+
+## v0.1.1 additions
+
+### getStatus
+- `serviceRunning`: Android `TrackingCoordinator.service != null` and its session is set; iOS location updates currently started by the plugin. `active` keeps its meaning (persisted request).
+- `lastLocation`: the latest fix (any fix, in or out of trip, including ones with unknown speed) the tracking engine received since it (re)started. Omit when none. Omit null sub-fields.
+
+### getLastReadings
+- Cached in memory by the tracking engine: latest fix (`location`) and latest motion sample (`motion`: linear accel, current gravity, and its horizontal magnitude via the same projection as `HarshEventDetector.horizontalMagnitude`). No sensors are switched on. `hasLocation`/`hasMotion` false and the object omitted when nothing is cached (e.g. motion outside a trip after a restart). Motion samples from a previous trip remain as the "last" reading.
+
+### getCurrentReadings({timeoutMs = 10000, motionSampleMs = 1000})
+- Validate: both positive numbers if present; clamp timeoutMs to [1000, 60000], motionSampleMs to [100, 5000]. Requires foreground location permission (`PERMISSION_DENIED` otherwise); location services off -> `LOCATION_DISABLED`.
+- In parallel: (a) request one fresh high-accuracy fix (Android `FusedLocationProviderClient.getCurrentLocation(PRIORITY_HIGH_ACCURACY, cancellationToken)`; iOS a dedicated `CLLocationManager` with `requestLocation()`), timeout -> `hasLocation: false`; (b) register motion sensors for `motionSampleMs` at 50 Hz using the same sensor/fallback logic as tracking, then report the last sample's a/g/horizontal plus `peakHorizontalMps2` (max horizontal over the window) and `samples`. No samples -> `hasMotion: false`.
+- Must not disturb an active tracking session (separate listener/manager; do not reset detectors). Resolve once both parts finish.
+- Never writes to the event buffer.
+
+### Android notification
+- Channel importance DEFAULT with `setSilent(true)` / no sound, so the icon shows in the status bar. Use a new channel id `driving_sensors_tracking_v2` (importance of an existing channel can't be raised).
+
+### Android: undeclared permissions
+- In `requestPermissions`, before requesting, check the requested permission strings are declared in the app manifest (`packageManager.getPackageInfo(packageName, GET_PERMISSIONS).requestedPermissions`). If any are missing, reject with `NOT_SUPPORTED` and message `Missing in AndroidManifest.xml: <list>`.

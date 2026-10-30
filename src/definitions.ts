@@ -38,6 +38,55 @@ export interface DrivingSensorsPlugin {
    * Delete all buffered events with `id <= upToId`.
    */
   ackEvents(options: { upToId: number }): Promise<void>;
+
+  /**
+   * Last readings the tracking engine received. Instant; never switches sensors on.
+   * Location updates arrive whenever tracking is active; motion only while a trip is in progress.
+   */
+  getLastReadings(): Promise<SensorReadings>;
+
+  /**
+   * Take a fresh reading: one high-accuracy location fix and a short motion-sensor sample.
+   * Works whether or not tracking is active. Requires foreground location permission
+   * (rejects with `PERMISSION_DENIED`). If no fix arrives within `timeoutMs`, resolves with
+   * `hasLocation: false`.
+   */
+  getCurrentReadings(options?: { timeoutMs?: number; motionSampleMs?: number }): Promise<SensorReadings>;
+}
+
+export interface LocationReading {
+  /** Epoch ms of the fix. */
+  ts: number;
+  lat: number;
+  lon: number;
+  speedMps?: number;
+  accuracyM?: number;
+}
+
+export interface MotionReading {
+  /** Epoch ms of the (last) sample. */
+  ts: number;
+  /** Linear acceleration (gravity removed), m/s², device axes. */
+  ax: number;
+  ay: number;
+  az: number;
+  /** Gravity vector, m/s², device axes. */
+  gx: number;
+  gy: number;
+  gz: number;
+  /** Horizontal acceleration magnitude of this sample, m/s² (same projection as harsh detection). */
+  horizontalMps2: number;
+  /** Highest horizontal magnitude in the sampled window. `getCurrentReadings` only. */
+  peakHorizontalMps2?: number;
+  /** Number of samples in the window. `getCurrentReadings` only. */
+  samples?: number;
+}
+
+export interface SensorReadings {
+  hasLocation: boolean;
+  location?: LocationReading;
+  hasMotion: boolean;
+  motion?: MotionReading;
 }
 
 export type DrivingSensorsPermissionType = 'location' | 'backgroundLocation' | 'motion' | 'notifications';
@@ -75,7 +124,12 @@ export interface TrackingOptions {
 }
 
 export interface TrackingStatus {
+  /** Tracking was requested (persisted state). See `serviceRunning` for whether it actually runs. */
   active: boolean;
+  /** The native tracking engine is running right now (Android foreground service / iOS location updates). */
+  serviceRunning: boolean;
+  /** Last location fix the tracking engine received, if any since it started. */
+  lastLocation?: LocationReading;
   sessionId?: string;
   inTrip: boolean;
   /** Number of events currently in the native buffer. */

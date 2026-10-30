@@ -1,6 +1,12 @@
 import { WebPlugin } from '@capacitor/core';
 
-import type { DrivingSensorsPlugin, PermissionStatus, TelemetryEvent, TrackingStatus } from './definitions';
+import type {
+  DrivingSensorsPlugin,
+  PermissionStatus,
+  SensorReadings,
+  TelemetryEvent,
+  TrackingStatus,
+} from './definitions';
 
 export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin {
   async checkPermissions(): Promise<PermissionStatus> {
@@ -20,7 +26,7 @@ export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin
   }
 
   async getStatus(): Promise<TrackingStatus> {
-    return { active: false, inTrip: false, buffered: 0 };
+    return { active: false, serviceRunning: false, inTrip: false, buffered: 0 };
   }
 
   async getBufferedEvents(): Promise<{ events: TelemetryEvent[] }> {
@@ -29,5 +35,13 @@ export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin
 
   async ackEvents(): Promise<void> {
     return;
+  }
+
+  async getLastReadings(): Promise<SensorReadings> {
+    return { hasLocation: false, hasMotion: false };
+  }
+
+  async getCurrentReadings(): Promise<SensorReadings> {
+    throw this.unavailable('DrivingSensors is only available on Android and iOS.');
   }
 }

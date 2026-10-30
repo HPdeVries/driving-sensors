@@ -13,13 +13,19 @@ export class DrivingSensorsWeb extends WebPlugin {
         throw this.unavailable('DrivingSensors is only available on Android and iOS.');
     }
     async getStatus() {
-        return { active: false, inTrip: false, buffered: 0 };
+        return { active: false, serviceRunning: false, inTrip: false, buffered: 0 };
     }
     async getBufferedEvents() {
         return { events: [] };
     }
     async ackEvents() {
         return;
+    }
+    async getLastReadings() {
+        return { hasLocation: false, hasMotion: false };
+    }
+    async getCurrentReadings() {
+        throw this.unavailable('DrivingSensors is only available on Android and iOS.');
     }
 }
 //# sourceMappingURL=web.js.map

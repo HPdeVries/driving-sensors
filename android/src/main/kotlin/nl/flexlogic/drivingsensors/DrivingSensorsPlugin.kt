@@ -220,6 +220,11 @@ class DrivingSensorsPlugin : Plugin() {
     }
 
     @PluginMethod
+    fun getPluginVersion(call: PluginCall) {
+        call.resolve(JSObject().put("version", PLUGIN_VERSION).put("platform", "android"))
+    }
+
+    @PluginMethod
     fun getBufferedEvents(call: PluginCall) {
         val afterId = (call.getLong("afterId") ?: 0L).coerceAtLeast(0L)
         val limit = (call.getInt("limit") ?: DEFAULT_LIMIT).coerceIn(1, EventStore.MAX_LIMIT)

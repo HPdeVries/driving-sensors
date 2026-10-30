@@ -53,6 +53,15 @@ function options() {
   };
 }
 
+async function showPluginVersion() {
+  try {
+    const v = await DrivingSensors.getPluginVersion();
+    $('pluginVersion').textContent = 'Native plugin version: ' + v.version + ' (' + v.platform + ')';
+  } catch (e) {
+    $('pluginVersion').textContent = 'Native plugin version: unknown (' + (e.code || e.message) + '; native older than 0.1.2?)';
+  }
+}
+
 async function refreshStatus() {
   try {
     const s = await DrivingSensors.getStatus();
@@ -204,6 +213,7 @@ $('btnClear').onclick = () => {
 let timer;
 function startTimer() {
   stopTimer();
+  showPluginVersion();
   refreshStatus();
   timer = setInterval(refreshStatus, 5000);
 }

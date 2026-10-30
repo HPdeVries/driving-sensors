@@ -35,6 +35,7 @@ npx cap sync
 * [`ackEvents(...)`](#ackevents)
 * [`getLastReadings()`](#getlastreadings)
 * [`getCurrentReadings(...)`](#getcurrentreadings)
+* [`getPluginVersion()`](#getpluginversion)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
 
@@ -179,6 +180,19 @@ Works whether or not tracking is active. Requires foreground location permission
 | **`options`** | <code>{ timeoutMs?: number; motionSampleMs?: number; }</code> |
 
 **Returns:** <code>Promise&lt;<a href="#sensorreadings">SensorReadings</a>&gt;</code>
+
+--------------------
+
+
+### getPluginVersion()
+
+```typescript
+getPluginVersion() => Promise<{ version: string; platform: 'android' | 'ios' | 'web'; }>
+```
+
+Version of the native plugin code compiled into the app (not the JS bundle), plus the platform.
+
+**Returns:** <code>Promise&lt;{ version: string; platform: 'android' | 'ios' | 'web'; }&gt;</code>
 
 --------------------
 

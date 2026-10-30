@@ -14,4 +14,8 @@ export declare class DrivingSensorsWeb extends WebPlugin implements DrivingSenso
     ackEvents(): Promise<void>;
     getLastReadings(): Promise<SensorReadings>;
     getCurrentReadings(): Promise<SensorReadings>;
+    getPluginVersion(): Promise<{
+        version: string;
+        platform: 'android' | 'ios' | 'web';
+    }>;
 }

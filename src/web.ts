@@ -8,6 +8,9 @@ import type {
   TrackingStatus,
 } from './definitions';
 
+// Kept in sync with package.json by scripts/sync-version.mjs. Do not edit by hand.
+const PLUGIN_VERSION = '0.1.2';
+
 export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin {
   async checkPermissions(): Promise<PermissionStatus> {
     throw this.unavailable('DrivingSensors is only available on Android and iOS.');
@@ -43,5 +46,9 @@ export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin
 
   async getCurrentReadings(): Promise<SensorReadings> {
     throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+  }
+
+  async getPluginVersion(): Promise<{ version: string; platform: 'android' | 'ios' | 'web' }> {
+    return { version: PLUGIN_VERSION, platform: 'web' };
   }
 }

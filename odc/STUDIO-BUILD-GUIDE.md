@@ -90,7 +90,7 @@ Optional: run `SyncFromDevice` from the app's On Application Resume handler.
 v0.1.1 adds `serviceRunning` and `lastLocation` to the status plus two new calls, `getLastReadings` and `getCurrentReadings`. Do these steps in ODC Studio, in order.
 
 ### In the mobile library `DrivingSensorsPlugin`
-1. Open **Extensibility configuration** and change the plugin source to `"npm": "https://github.com/HPdeVries/driving-sensors#v0.1.1"` (paste `odc/extensibility-configuration.fixed-texts.json` again if you prefer; only that line differs). Make sure the `v0.1.1` tag exists on GitHub with `dist/` committed.
+1. Open **Extensibility configuration** and change the plugin source to `"npm": "https://github.com/HPdeVries/driving-sensors#v0.1.2"` (paste `odc/extensibility-configuration.fixed-texts.json` again if you prefer; only that line differs). Make sure the `v0.1.1` tag exists on GitHub with `dist/` committed.
 2. Add the three new **public** structures from `odc/structures.md` (attribute names are case-sensitive):
    - `LocationReading`: `ts` (Long Integer), `lat`, `lon`, `speedMps`, `accuracyM` (all Decimal).
    - `MotionReading`: `ts` (Long Integer), `ax`, `ay`, `az`, `gx`, `gy`, `gz`, `horizontalMps2`, `peakHorizontalMps2` (all Decimal), `samples` (Integer).
@@ -122,3 +122,13 @@ Local variables on `Home`: `Readings` (SensorReadings).
   | Current reading | `GetCurrentReadings` with TimeoutMs = `0`, MotionSampleMs = `0` (a fresh fix can take several seconds: disable the button while it runs) |
 
 - The card shows, inside `If(Readings.hasLocation, ...)`: latitude `Readings.location.lat`, longitude `Readings.location.lon`, speed `Readings.location.speedMps * 3.6` km/h, accuracy `Readings.location.accuracyM` m. Inside `If(Readings.hasMotion, ...)`: horizontal acceleration `Readings.motion.horizontalMps2` m/s2 and peak `Readings.motion.peakHorizontalMps2` m/s2. Otherwise show "No location" / "No motion data".
+
+## v0.1.2: GetPluginVersion
+
+v0.1.2 adds one call, `getPluginVersion`, which reports the version of the native plugin code compiled into the app. Steps in ODC Studio:
+
+1. In the mobile library `DrivingSensorsPlugin`, change the plugin source in **Extensibility configuration** to `"npm": "https://github.com/HPdeVries/driving-sensors#v0.1.2"` (make sure the `v0.1.2` tag exists on GitHub with `dist/` committed).
+2. Add client action **GetPluginVersion** (public): no inputs; outputs `Success` (Boolean), `ErrorCode` (Text), `ErrorMessage` (Text), `Version` (Text), `Platform` (Text). Flow: a JavaScript node with the body of `odc/client-actions/GetPluginVersion.js` (output parameters as listed, no inputs), then End.
+3. **Publish** the library, then in DriveMe use **Manage dependencies** to update it and tick the new client action, publish DriveMe, make a new **MABS build**, and uninstall and reinstall the app on the device.
+
+Why this matters: ODC updates the JavaScript over the air, so the JS in a running app can be newer than the native binary that MABS built. `GetPluginVersion` asks the native side, so it tells you which native version is really installed. On a native binary older than 0.1.2 the call fails with a "not implemented" error, which itself means "native < 0.1.2".

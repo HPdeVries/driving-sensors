@@ -6,7 +6,9 @@
  *   Success (Boolean)
  *   ErrorCode (Text)
  *   ErrorMessage (Text)
- *   StatusJson (Text) - JSON of TrackingStatus {active, sessionId?, inTrip, buffered}
+ *   StatusJson (Text) - JSON of TrackingStatus {active, serviceRunning, sessionId?, inTrip, buffered, lastLocation?}
+ *                       (serviceRunning: native tracking service alive; lastLocation: last known LocationReading,
+ *                       omitted when none). JS needs no change: it stringifies the whole result.
  *
  * JS node body (async JS node: ODC waits for $resolve()).
  */

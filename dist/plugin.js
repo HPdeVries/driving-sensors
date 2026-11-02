@@ -6,7 +6,7 @@ var capacitorDrivingSensors = (function (exports, core) {
     });
 
     // Kept in sync with package.json by scripts/sync-version.mjs. Do not edit by hand.
-    const PLUGIN_VERSION = '0.2.0';
+    const PLUGIN_VERSION = '0.3.0';
     class DrivingSensorsWeb extends core.WebPlugin {
         async checkPermissions() {
             throw this.unavailable('DrivingSensors is only available on Android and iOS.');

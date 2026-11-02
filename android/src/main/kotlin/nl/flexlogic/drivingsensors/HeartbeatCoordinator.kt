@@ -20,8 +20,9 @@ object HeartbeatCoordinator {
 
     fun clampInterval(v: Double?): Int = (v ?: DEFAULT_INTERVAL_SEC.toDouble()).toInt().coerceIn(MIN_INTERVAL_SEC, MAX_INTERVAL_SEC)
 
-    fun loadState(context: Context): HeartbeatState? {
-        val p = prefs(context)
+    fun loadState(context: Context): HeartbeatState? = parseState(prefs(context))
+
+    internal fun parseState(p: SharedPreferences): HeartbeatState? {
         if (!p.getBoolean("running", false)) return null
         return HeartbeatState(p.getInt("intervalSec", DEFAULT_INTERVAL_SEC), p.getLong("seq", 0))
     }

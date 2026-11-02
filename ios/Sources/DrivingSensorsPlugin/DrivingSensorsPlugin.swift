@@ -25,7 +25,14 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getRecordingStatus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "listRecordingChunks", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getRecordingChunk", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "ackRecordingChunk", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "ackRecordingChunk", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "configureUpload", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "clearUpload", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getUploadStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "uploadNow", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startHeartbeat", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopHeartbeat", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getHeartbeatStatus", returnType: CAPPluginReturnPromise)
     ]
     private let implementation = DrivingSensors()
 
@@ -174,6 +181,62 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
             case .failure(let e): call.reject(e.message, e.code)
             }
         }
+    }
+
+    // MARK: - Upload and heartbeat
+
+    @objc func configureUpload(_ call: CAPPluginCall) {
+        let options = call.options as? [String: Any] ?? [:]
+        DispatchQueue.global().async {
+            do {
+                try self.implementation.configureUpload(options)
+                call.resolve()
+            } catch let e as DrivingSensorsError {
+                call.reject(e.message, e.code)
+            } catch {
+                call.reject("Could not configure upload", "INTERNAL")
+            }
+        }
+    }
+
+    @objc func clearUpload(_ call: CAPPluginCall) {
+        DispatchQueue.global().async {
+            self.implementation.clearUpload()
+            call.resolve()
+        }
+    }
+
+    @objc func getUploadStatus(_ call: CAPPluginCall) {
+        DispatchQueue.global().async { call.resolve(self.implementation.uploads.status()) }
+    }
+
+    @objc func uploadNow(_ call: CAPPluginCall) {
+        implementation.uploads.uploadNow()
+        call.resolve()
+    }
+
+    @objc func startHeartbeat(_ call: CAPPluginCall) {
+        var interval: Double?
+        if let raw = call.options["intervalSec"], !(raw is NSNull) {
+            guard let n = raw as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else {
+                return call.reject("intervalSec must be a number", "INVALID_ARGUMENT")
+            }
+            interval = n.doubleValue
+        }
+        implementation.startHeartbeat(intervalSec: interval) { result in
+            switch result {
+            case .success: call.resolve()
+            case .failure(let e): call.reject(e.message, e.code)
+            }
+        }
+    }
+
+    @objc func stopHeartbeat(_ call: CAPPluginCall) {
+        implementation.stopHeartbeat { call.resolve() }
+    }
+
+    @objc func getHeartbeatStatus(_ call: CAPPluginCall) {
+        DispatchQueue.global().async { call.resolve(self.implementation.heartbeat.sender.statusDictionary()) }
     }
 
     @objc func ackRecordingChunk(_ call: CAPPluginCall) {

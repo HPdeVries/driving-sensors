@@ -26,6 +26,12 @@ func dsLog(_ message: String) {
     private static let tickInterval: TimeInterval = 10
 
     private(set) var store: EventStore?
+    private(set) var uploads: UploadManager!
+    private(set) var heartbeat: HeartbeatScheduler!
+    /// systemUptime when the plugin class was first used; processUptimeSec is relative to it.
+    static let processStartUptime = ProcessInfo.processInfo.systemUptime
+    /// Main thread only: the heartbeat's keep-alive wants location updates.
+    private var heartbeatKeepAlive = false
     private let defaults = UserDefaults.standard
     private let work = DispatchQueue(label: "driving-sensors.work")
     private let motionQueue: OperationQueue = {
@@ -71,6 +77,13 @@ func dsLog(_ message: String) {
         } catch {
             dsLog("could not open event store: \(error)")
         }
+        _ = DrivingSensors.processStartUptime
+        uploads = UploadManager(owner: self)
+        let sender = HeartbeatSender(
+            config: uploads.store,
+            makeTransport: { URLSessionTransport(wifiOnly: false, waitsForConnectivity: false) },
+            snapshot: { [weak self] in self?.heartbeatSnapshot() ?? HeartbeatSnapshot() })
+        heartbeat = HeartbeatScheduler(config: uploads.store, sender: sender)
     }
 
     // MARK: - Lifecycle
@@ -78,6 +91,8 @@ func dsLog(_ message: String) {
     /// Called from the plugin's load(): resume if state says active and permission allows.
     func resumeIfNeeded() {
         resumeRecordingIfNeeded()
+        uploads.start()
+        DispatchQueue.main.async { self.resumeHeartbeatIfNeeded() }
         DispatchQueue.main.async {
             guard let data = self.defaults.data(forKey: DrivingSensors.stateKey),
                   let state = try? JSONDecoder().decode(PersistedState.self, from: data),
@@ -126,11 +141,7 @@ func dsLog(_ message: String) {
                 self.locationRunning = false
                 self.motionRunning = false
             }
-            if self.currentRecorder() == nil {
-                self.manager.stopUpdatingLocation()
-            } else {
-                self.manager.distanceFilter = kCLDistanceFilterNone
-            }
+            self.reconcileLocation()
             if self.standaloneMotionCount == 0 { self.motionManager.stopDeviceMotionUpdates() }
             self.defaults.removeObject(forKey: DrivingSensors.stateKey)
             completion()
@@ -169,21 +180,45 @@ func dsLog(_ message: String) {
             self.timer?.cancel()
             self.timer = t
         }
-        configureLocation(inTrip: false)
-        manager.startUpdatingLocation()
+        reconcileLocation()
+    }
+
+    /// Main thread. Single place that starts/stops the shared location manager, based on who needs it.
+    private func reconcileLocation() {
+        var consumers: LocationConsumers = []
+        if work.sync(execute: { active }) { consumers.insert(.tracking) }
+        if currentRecorder() != nil { consumers.insert(.recording) }
+        if heartbeatKeepAlive { consumers.insert(.heartbeat) }
+        switch consumers.plan {
+        case .off:
+            manager.stopUpdatingLocation()
+        case .full:
+            configureLocation(inTrip: work.sync { trip.inTrip })
+            manager.startUpdatingLocation()
+        case .keepAlive:
+            applyBackgroundSettings()
+            manager.pausesLocationUpdatesAutomatically = false
+            manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+            manager.distanceFilter = 3000
+            manager.startUpdatingLocation()
+        }
+    }
+
+    private func applyBackgroundSettings() {
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []
+        if modes.contains("location") {
+            manager.allowsBackgroundLocationUpdates = true
+            manager.showsBackgroundLocationIndicator = true
+        } else {
+            dsLog("WARNING: UIBackgroundModes does not contain 'location'; background location is disabled")
+        }
     }
 
     /// Main thread. Shared by tracking and recording; background settings apply to both and
     /// recording's need (no distance filter) wins while it runs.
     private func configureLocation(inTrip: Bool) {
         let m = manager
-        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []
-        if modes.contains("location") {
-            m.allowsBackgroundLocationUpdates = true
-            m.showsBackgroundLocationIndicator = true
-        } else {
-            dsLog("WARNING: UIBackgroundModes does not contain 'location'; background location is disabled")
-        }
+        applyBackgroundSettings()
         m.pausesLocationUpdatesAutomatically = false
         m.activityType = .automotiveNavigation
         m.desiredAccuracy = kCLLocationAccuracyBest
@@ -418,7 +453,9 @@ func dsLog(_ message: String) {
     private func resumeRecordingIfNeeded() {
         DispatchQueue.global(qos: .utility).async {
             guard let dir = try? self.recordingDir() else { return }
-            RecordingFiles.finalizeLeftovers(in: dir)
+            if !RecordingFiles.finalizeLeftovers(in: dir).isEmpty {
+                NotificationCenter.default.post(name: .drivingSensorsChunkFinalized, object: nil)
+            }
             DispatchQueue.main.async {
                 guard let data = self.defaults.data(forKey: DrivingSensors.recordingKey),
                       let st = try? JSONDecoder().decode(PersistedRecording.self, from: data) else { return }
@@ -468,8 +505,7 @@ func dsLog(_ message: String) {
                 DispatchQueue.main.async { self?.stopRecordingInternal(reason: reason) {} }
             })
         setRecorder(rec)
-        configureLocation(inTrip: work.sync { trip.inTrip })
-        manager.startUpdatingLocation()
+        reconcileLocation()
         rec.start()
     }
 
@@ -488,11 +524,7 @@ func dsLog(_ message: String) {
         defaults.removeObject(forKey: DrivingSensors.recordingKey)
         if let reason { defaults.set(reason, forKey: DrivingSensors.recordingStopReasonKey) }
         rec.stopSensors()
-        if work.sync(execute: { active }) {
-            manager.distanceFilter = work.sync { trip.inTrip } ? kCLDistanceFilterNone : 10
-        } else {
-            manager.stopUpdatingLocation()
-        }
+        reconcileLocation()
         DispatchQueue.global(qos: .utility).async {
             rec.finish()
             completion()
@@ -545,6 +577,91 @@ func dsLog(_ message: String) {
         guard RecordingChunkId.isValid(chunkId), let dir = try? recordingDir() else { return }
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(chunkId + ".csv.gz"))
         try? FileManager.default.removeItem(at: dir.appendingPathComponent(chunkId + ".json"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(chunkId + RecordingFiles.rejectedSuffix))
+    }
+
+    func rejectRecordingChunk(chunkId: String) {
+        guard RecordingChunkId.isValid(chunkId), let dir = try? recordingDir() else { return }
+        RecordingFiles.rejectChunk(chunkId, in: dir)
+    }
+
+    func rejectedChunkCount() -> Int {
+        (try? recordingDir()).map { RecordingFiles.rejectedCount(in: $0) } ?? 0
+    }
+
+    /// Tracking or recording is running (not the heartbeat keep-alive).
+    var isCapturing: Bool { work.sync { active } || currentRecorder() != nil }
+
+    // MARK: - Upload and heartbeat
+
+    func configureUpload(_ options: [String: Any]) throws {
+        let (settings, token) = try UploadSettings.parse(options)
+        try uploads.store.configure(settings, token: token)
+        uploads.start()
+    }
+
+    func clearUpload() { uploads.store.clear() }
+
+    func startHeartbeat(intervalSec: Double?, completion: @escaping (Result<Void, DrivingSensorsError>) -> Void) {
+        DispatchQueue.main.async {
+            guard self.uploads.store.loadSettings() != nil else {
+                return completion(.failure(.invalid("configureUpload first")))
+            }
+            guard self.hasLocationPermission() else {
+                return completion(.failure(.init(message: "Location permission not granted", code: "PERMISSION_DENIED")))
+            }
+            UIDevice.current.isBatteryMonitoringEnabled = true
+            self.heartbeatKeepAlive = true
+            self.reconcileLocation()
+            self.heartbeat.start(intervalSec: HeartbeatScheduler.clamp(intervalSec ?? 30))
+            completion(.success(()))
+        }
+    }
+
+    func stopHeartbeat(completion: @escaping () -> Void) {
+        DispatchQueue.main.async {
+            self.heartbeat.stop()
+            self.heartbeatKeepAlive = false
+            self.reconcileLocation()
+            completion()
+        }
+    }
+
+    /// Main thread, plugin load.
+    private func resumeHeartbeatIfNeeded() {
+        guard heartbeat.isRunning else { return }
+        guard uploads.store.loadSettings() != nil, hasLocationPermission() else {
+            dsLog("persisted heartbeat not resumed: upload config or location permission missing")
+            heartbeat.stop()
+            return
+        }
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        heartbeatKeepAlive = true
+        reconcileLocation()
+        heartbeat.start(intervalSec: 0, resume: true)
+    }
+
+    /// Called on the heartbeat send queue; blocks on main only for the UIKit reads.
+    func heartbeatSnapshot() -> HeartbeatSnapshot {
+        var snap = HeartbeatSnapshot()
+        snap.processUptimeSec = max(0, Int(ProcessInfo.processInfo.systemUptime - DrivingSensors.processStartUptime))
+        let ui: (String, Int, Bool) = DispatchQueue.main.sync {
+            let d = UIDevice.current
+            let level = d.batteryLevel < 0 ? -1 : Int((d.batteryLevel * 100).rounded())
+            let charging = d.batteryState == .charging || d.batteryState == .full
+            return (UIApplication.shared.applicationState == .background ? "background" : "foreground", level, charging)
+        }
+        snap.appState = ui.0
+        snap.batteryLevel = ui.1
+        snap.charging = ui.2
+        snap.network = uploads.networkKind
+        let s = work.sync { (active, trip.inTrip) }
+        snap.tracking = s.0
+        snap.inTrip = s.1
+        snap.recording = currentRecorder() != nil
+        snap.pendingEvents = store?.count() ?? 0
+        snap.pendingChunks = recordingChunks(limit: Int.max).count
+        return snap
     }
 
     static func deviceModel() -> String {

@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -48,6 +49,10 @@ class TrackingService : Service() {
     private var session: Session? = null
 
     private var sensorsRegistered = false
+
+    // Raw recording (independent of the tracking session); touched on [handler] only.
+    private var recorder: RawRecorder? = null
+    private var recorderId: String? = null
 
     private val locationClient by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private val sensorManager by lazy { getSystemService(Context.SENSOR_SERVICE) as SensorManager }
@@ -82,24 +87,29 @@ class TrackingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val state = TrackingCoordinator.loadState(this)
+        val recState = RecordingCoordinator.loadState(this)
         try {
-            startForegroundCompat(state?.config ?: TrackingConfig())
+            startForegroundCompat(state?.config, recState?.config)
         } catch (e: Exception) {
             Log.e(TAG, "cannot start foreground service", e)
             stopSelf()
             return START_NOT_STICKY
         }
-        if (state == null) {
+        if (state == null && recState == null) {
             stopSelf()
             return START_NOT_STICKY
         }
-        handler.post { beginSession(state) }
+        if (state != null) handler.post { beginSession(state) }
+        if (recState != null) handler.post { beginRecording(recState) }
         return START_STICKY
     }
 
     override fun onDestroy() {
         if (TrackingCoordinator.service === this) TrackingCoordinator.service = null
-        handler.post { teardown() }
+        handler.post {
+            teardown()
+            teardownRecording()
+        }
         thread.quitSafely()
         super.onDestroy()
     }
@@ -110,18 +120,77 @@ class TrackingService : Service() {
             session?.let { s -> s.trip.forceEnd()?.let { writeTripEnd(s, it.fix) } }
             teardown()
             TrackingCoordinator.store(this).whenIdle(onDone)
-            stopSelf()
+            stopOrRefresh()
         }
     }
 
-    private fun startForegroundCompat(config: TrackingConfig) {
+    /** Called by [RecordingCoordinator] after the persisted recording flag was cleared. */
+    fun requestRecordingStop(onDone: () -> Unit) {
+        handler.post {
+            val r = recorder
+            recorder = null
+            recorderId = null
+            RecordingCoordinator.recordingRunning = false
+            RecordingCoordinator.rates = null
+            if (r == null) {
+                RecordingCoordinator.io.execute {
+                    try {
+                        RecordingFiles.finalizeLeftovers(RecordingCoordinator.dir(this))
+                    } finally {
+                        onDone()
+                    }
+                }
+                handler.post { stopOrRefresh() }
+            } else {
+                r.stop {
+                    handler.post { stopWriterThen(r, onDone) }
+                }
+            }
+        }
+    }
+
+    // Writer reference kept alongside the recorder so stop can flush it.
+    private var writer: RecordingWriter? = null
+
+    private fun stopWriterThen(@Suppress("UNUSED_PARAMETER") r: RawRecorder, onDone: () -> Unit) {
+        val w = writer
+        writer = null
+        if (w == null) {
+            onDone()
+            stopOrRefresh()
+        } else {
+            w.stop {
+                try {
+                    onDone()
+                } finally {
+                    handler.post { stopOrRefresh() }
+                }
+            }
+        }
+    }
+
+    /** Stops the service when neither tracking nor recording is active, else refreshes the notification. */
+    private fun stopOrRefresh() {
+        if (TrackingCoordinator.loadState(this) == null && RecordingCoordinator.loadState(this) == null) {
+            stopSelf()
+        } else {
+            try {
+                (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
+                    .notify(NOTIFICATION_ID, buildNotification(TrackingCoordinator.loadState(this)?.config, RecordingCoordinator.loadState(this)?.config))
+            } catch (e: Exception) {
+                Log.w(TAG, "could not update notification", e)
+            }
+        }
+    }
+
+    private fun startForegroundCompat(config: TrackingConfig?, recording: RecordingConfig?) {
         createChannel()
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         } else {
             0
         }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(config), type)
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(config, recording), type)
     }
 
     private fun createChannel() {
@@ -137,15 +206,16 @@ class TrackingService : Service() {
         )
     }
 
-    private fun buildNotification(config: TrackingConfig): Notification {
+    private fun buildNotification(config: TrackingConfig?, recording: RecordingConfig?): Notification {
+        val (title, text) = ServiceNotificationText.compose(config, recording)
         val launch = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = launch?.let {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_driving_sensors_notification)
-            .setContentTitle(config.notificationTitle)
-            .setContentText(config.notificationText)
+            .setContentTitle(title)
+            .setContentText(text)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -198,6 +268,76 @@ class TrackingService : Service() {
         }.build()
         locationClient.requestLocationUpdates(request, locationCallback, thread.looper)
         return true
+    }
+
+    // ---- raw recording ----
+
+    private fun beginRecording(state: RecordingState) {
+        if (recorderId == state.recordingId) return
+        teardownRecording()
+        recorderId = state.recordingId // claim, so a second start command does not start twice
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "location permission missing, stopping recording")
+            recorderId = null
+            RecordingCoordinator.end(this, "PERMISSION_LOST") {}
+            return
+        }
+        val dir = RecordingCoordinator.dir(this)
+        RecordingCoordinator.io.execute {
+            // Nothing is writing yet, so every .part is a leftover from a crash.
+            try {
+                RecordingFiles.finalizeLeftovers(dir)
+            } catch (e: Exception) {
+                Log.w(TAG, "could not finalize leftover chunks", e)
+            }
+            val nextSeq = RecordingFiles.nextSeq(dir, state.recordingId, state.nextSeq)
+            handler.post { startRecorder(state, nextSeq) }
+        }
+    }
+
+    private fun startRecorder(state: RecordingState, nextSeq: Int) {
+        // Stopped or replaced while leftovers were being finalized?
+        if (recorderId != state.recordingId || RecordingCoordinator.loadState(this)?.recordingId != state.recordingId) return
+        val config = state.config
+        val w = RecordingWriter(
+            dir = RecordingCoordinator.dir(this),
+            recordingId = state.recordingId,
+            chunkMs = config.chunkSeconds * 1000L,
+            maxBytes = config.maxStorageMb.toLong() * 1024 * 1024,
+            startSeq = nextSeq,
+            onChunkOpened = { seq -> RecordingCoordinator.updateNextSeq(this, seq + 1) },
+            onStorageFull = { RecordingCoordinator.end(this, "STORAGE_FULL") {} },
+            onError = { e ->
+                Log.e(TAG, "recording writer failed", e)
+                RecordingCoordinator.end(this, "ERROR") {}
+            },
+        )
+        val rates = RateWindow(startMs = SystemClock.elapsedRealtime())
+        val r = RawRecorder(sensorManager, locationClient, config, w, rates)
+        w.start()
+        if (!r.start()) {
+            r.stop {}
+            w.stop {}
+            recorderId = null
+            RecordingCoordinator.end(this, "PERMISSION_LOST") {}
+            return
+        }
+        writer = w
+        recorder = r
+        RecordingCoordinator.rates = rates
+        RecordingCoordinator.recordingRunning = true
+    }
+
+    /** Immediate teardown (replace / destroy): flushes the writer asynchronously. */
+    private fun teardownRecording() {
+        val r = recorder
+        val w = writer
+        recorder = null
+        writer = null
+        recorderId = null
+        RecordingCoordinator.recordingRunning = false
+        RecordingCoordinator.rates = null
+        r?.stop { w?.stop {} }
     }
 
     // ---- location / trip ----

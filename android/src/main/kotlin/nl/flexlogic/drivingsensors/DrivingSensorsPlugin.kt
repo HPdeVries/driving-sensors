@@ -4,7 +4,11 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationManager
+import android.hardware.Sensor
+import android.hardware.SensorManager
 import android.os.Build
+import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
@@ -41,8 +45,15 @@ class DrivingSensorsPlugin : Plugin() {
 
     override fun load() {
         try {
-            if (TrackingCoordinator.loadState(context) != null && isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            val recording = RecordingCoordinator.loadState(context)
+            if ((TrackingCoordinator.loadState(context) != null || recording != null) &&
+                isGranted(Manifest.permission.ACCESS_FINE_LOCATION)
+            ) {
+                // The service finalizes leftover chunks itself before it starts writing.
                 TrackingCoordinator.startService(context)
+            } else if (recording == null) {
+                val dir = RecordingCoordinator.dir(context)
+                RecordingCoordinator.io.execute { RecordingFiles.finalizeLeftovers(dir) }
             }
         } catch (e: Exception) {
             Log.w(TAG, "could not resume tracking", e)
@@ -253,6 +264,181 @@ class DrivingSensorsPlugin : Plugin() {
                 onFailure = { call.reject("Could not delete events: ${it.message}", "INTERNAL") },
             )
         }
+    }
+
+    // ---- recording ----
+
+    @PluginMethod
+    fun startRecording(call: PluginCall) {
+        val config = try {
+            RecordingConfig.resolve(
+                accelHz = call.getDouble("accelHz"),
+                gyroHz = call.getDouble("gyroHz"),
+                magHz = call.getDouble("magHz"),
+                baroHz = call.getDouble("baroHz"),
+                locationIntervalMs = call.getDouble("locationIntervalMs"),
+                chunkSeconds = call.getDouble("chunkSeconds"),
+                maxStorageMb = call.getDouble("maxStorageMb"),
+                notificationTitle = call.getString("notificationTitle"),
+                notificationText = call.getString("notificationText"),
+            )
+        } catch (e: IllegalArgumentException) {
+            call.reject(e.message, "INVALID_ARGUMENT")
+            return
+        }
+        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            call.reject("Fine location permission is required", "PERMISSION_DENIED")
+            return
+        }
+        if (!backgroundGranted()) Log.w(TAG, "background location not granted; recording may stop in the background")
+        try {
+            val id = RecordingCoordinator.begin(context, config)
+            call.resolve(JSObject().put("recordingId", id))
+        } catch (e: Exception) {
+            call.reject("Could not start recording: ${e.message}", "INTERNAL", e)
+        }
+    }
+
+    @PluginMethod
+    fun stopRecording(call: PluginCall) {
+        try {
+            RecordingCoordinator.end(context) { call.resolve() }
+        } catch (e: Exception) {
+            call.reject("Could not stop recording: ${e.message}", "INTERNAL", e)
+        }
+    }
+
+    @PluginMethod
+    fun getRecordingStatus(call: PluginCall) {
+        val state = RecordingCoordinator.loadState(context)
+        val stopReason = RecordingCoordinator.stopReason(context)
+        val dir = RecordingCoordinator.dir(context)
+        val available = JSObject().apply {
+            put("acc", hasSensor(Sensor.TYPE_ACCELEROMETER))
+            put("gyr", hasSensor(Sensor.TYPE_GYROSCOPE))
+            put("mag", hasSensor(Sensor.TYPE_MAGNETIC_FIELD))
+            put("bar", hasSensor(Sensor.TYPE_PRESSURE))
+            put("loc", context.packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION))
+        }
+        RecordingCoordinator.io.execute {
+            try {
+                val ret = JSObject()
+                ret.put("recording", state != null)
+                state?.let {
+                    ret.put("recordingId", it.recordingId)
+                    ret.put("startedAt", it.startedAt)
+                }
+                ret.put("chunksPending", dir.listFiles()?.count { it.name.endsWith(RecordingFiles.JSON_SUFFIX) } ?: 0)
+                ret.put("bytesPending", RecordingFiles.totalBytes(dir))
+                ret.put("available", available)
+                val rates = RecordingCoordinator.rates
+                if (state != null && rates != null) {
+                    val now = SystemClock.elapsedRealtime()
+                    val hz = JSObject()
+                    for ((i, name) in RecordingSensors.NAMES.withIndex()) {
+                        hz.put(name, Math.round(rates.measuredHz(i, now) * 10) / 10.0)
+                    }
+                    ret.put("measuredHz", hz)
+                }
+                if (stopReason != null) ret.put("stopReason", stopReason)
+                call.resolve(ret)
+            } catch (e: Exception) {
+                call.reject("Could not read recording status: ${e.message}", "INTERNAL")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun listRecordingChunks(call: PluginCall) {
+        val limit = (call.getInt("limit") ?: 100).coerceIn(1, 10_000)
+        val dir = RecordingCoordinator.dir(context)
+        RecordingCoordinator.io.execute {
+            try {
+                val infos = ArrayList<JSObject>()
+                dir.listFiles()?.filter { it.name.endsWith(RecordingFiles.JSON_SUFFIX) }?.forEach { f ->
+                    try {
+                        infos.add(JSObject(f.readText(Charsets.UTF_8)))
+                    } catch (e: Exception) {
+                        Log.w(TAG, "unreadable chunk metadata ${f.name}", e)
+                    }
+                }
+                infos.sortWith(compareBy({ it.optLong("startTs") }, { it.optInt("seq") }))
+                val arr = JSArray()
+                infos.take(limit).forEach { arr.put(it) }
+                call.resolve(JSObject().put("chunks", arr))
+            } catch (e: Exception) {
+                call.reject("Could not list chunks: ${e.message}", "INTERNAL")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun getRecordingChunk(call: PluginCall) {
+        val chunkId = call.getString("chunkId")
+        if (chunkId == null || !RecordingFiles.isSafeChunkId(chunkId)) {
+            call.reject("Unknown chunkId", "INVALID_ARGUMENT")
+            return
+        }
+        val dir = RecordingCoordinator.dir(context)
+        RecordingCoordinator.io.execute {
+            try {
+                val json = RecordingFiles.jsonFile(dir, chunkId)
+                val gz = RecordingFiles.gzFile(dir, chunkId)
+                if (!json.isFile || !gz.isFile) {
+                    call.reject("Unknown chunkId", "INVALID_ARGUMENT")
+                    return@execute
+                }
+                val ret = JSObject(json.readText(Charsets.UTF_8))
+                ret.put("format", "csv-v1")
+                ret.put("encoding", "gzip+base64")
+                ret.put("platform", "android")
+                ret.put("deviceModel", "${Build.MANUFACTURER} ${Build.MODEL}")
+                ret.put("osVersion", Build.VERSION.RELEASE)
+                ret.put("pluginVersion", PLUGIN_VERSION)
+                ret.put("sensorInfo", sensorInfo())
+                ret.put("data", Base64.encodeToString(gz.readBytes(), Base64.NO_WRAP))
+                call.resolve(ret)
+            } catch (e: Exception) {
+                call.reject("Could not read chunk: ${e.message}", "INTERNAL")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun ackRecordingChunk(call: PluginCall) {
+        val chunkId = call.getString("chunkId")
+        if (chunkId == null || !RecordingFiles.isSafeChunkId(chunkId)) {
+            call.reject("Unknown chunkId", "INVALID_ARGUMENT")
+            return
+        }
+        val dir = RecordingCoordinator.dir(context)
+        RecordingCoordinator.io.execute {
+            try {
+                // Metadata first: a chunk without .json is no longer listed.
+                RecordingFiles.jsonFile(dir, chunkId).delete()
+                RecordingFiles.gzFile(dir, chunkId).delete()
+                call.resolve()
+            } catch (e: Exception) {
+                call.reject("Could not delete chunk: ${e.message}", "INTERNAL")
+            }
+        }
+    }
+
+    private val sensorManager by lazy { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
+
+    private fun hasSensor(type: Int) = sensorManager.getDefaultSensor(type) != null
+
+    private fun sensorInfo(): JSObject {
+        val o = JSObject()
+        fun describe(key: String, type: Int, kind: String) {
+            sensorManager.getDefaultSensor(type)?.let { o.put(key, "${it.vendor} ${it.name}, $kind") }
+        }
+        describe("acc", Sensor.TYPE_ACCELEROMETER, "calibrated")
+        describe("gyr", Sensor.TYPE_GYROSCOPE, "calibrated")
+        describe("mag", Sensor.TYPE_MAGNETIC_FIELD, "calibrated")
+        describe("bar", Sensor.TYPE_PRESSURE, "calibrated")
+        o.put("loc", "Fused location provider, high accuracy")
+        return o
     }
 
     // ---- helpers ----

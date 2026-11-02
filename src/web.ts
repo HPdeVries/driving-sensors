@@ -2,6 +2,7 @@ import { WebPlugin } from '@capacitor/core';
 
 import type {
   DrivingSensorsPlugin,
+  HeartbeatStatus,
   RecordingChunk,
   RecordingChunkInfo,
   RecordingStatus,
@@ -107,5 +108,17 @@ export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin
 
   async uploadNow(): Promise<void> {
     throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+  }
+
+  async startHeartbeat(): Promise<void> {
+    throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+  }
+
+  async stopHeartbeat(): Promise<void> {
+    return;
+  }
+
+  async getHeartbeatStatus(): Promise<HeartbeatStatus> {
+    return { running: false, sent: 0, succeeded: 0 };
   }
 }

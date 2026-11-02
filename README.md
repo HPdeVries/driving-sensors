@@ -46,6 +46,9 @@ npx cap sync
 * [`clearUpload()`](#clearupload)
 * [`getUploadStatus()`](#getuploadstatus)
 * [`uploadNow()`](#uploadnow)
+* [`startHeartbeat(...)`](#startheartbeat)
+* [`stopHeartbeat()`](#stopheartbeat)
+* [`getHeartbeatStatus()`](#getheartbeatstatus)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
 
@@ -348,6 +351,45 @@ Ask for an upload attempt now (ignores backoff, still respects wifiOnly and AUTH
 --------------------
 
 
+### startHeartbeat(...)
+
+```typescript
+startHeartbeat(options?: { intervalSec?: number | undefined; } | undefined) => Promise<void>
+```
+
+Send a small heartbeat to POST {base}/heartbeat every `intervalSec` seconds, to verify that the
+native background runtime keeps working. Needs `configureUpload` first. Logs no sensor data.
+Android: runs in the foreground service (notification shown). iOS: keeps the app alive with
+lowest-power location updates (nothing is recorded; the location indicator is shown).
+Idempotent: if already running, the new interval is applied.
+
+| Param         | Type                                   |
+| ------------- | -------------------------------------- |
+| **`options`** | <code>{ intervalSec?: number; }</code> |
+
+--------------------
+
+
+### stopHeartbeat()
+
+```typescript
+stopHeartbeat() => Promise<void>
+```
+
+--------------------
+
+
+### getHeartbeatStatus()
+
+```typescript
+getHeartbeatStatus() => Promise<HeartbeatStatus>
+```
+
+**Returns:** <code>Promise&lt;<a href="#heartbeatstatus">HeartbeatStatus</a>&gt;</code>
+
+--------------------
+
+
 ### Interfaces
 
 
@@ -541,6 +583,20 @@ Ask for an upload attempt now (ignores backoff, still respects wifiOnly and AUTH
 | **`lastError`**        | <code>string</code>                                 |                                                                              |
 | **`lastHttpStatus`**   | <code>number</code>                                 |                                                                              |
 | **`nextAttemptAt`**    | <code>number</code>                                 | Epoch ms of the next scheduled attempt while in backoff.                     |
+
+
+#### HeartbeatStatus
+
+| Prop                 | Type                 | Description                                            |
+| -------------------- | -------------------- | ------------------------------------------------------ |
+| **`running`**        | <code>boolean</code> |                                                        |
+| **`intervalSec`**    | <code>number</code>  |                                                        |
+| **`sent`**           | <code>number</code>  | Heartbeats attempted / succeeded since startHeartbeat. |
+| **`succeeded`**      | <code>number</code>  |                                                        |
+| **`lastSentAt`**     | <code>number</code>  |                                                        |
+| **`lastSuccessAt`**  | <code>number</code>  |                                                        |
+| **`lastError`**      | <code>string</code>  |                                                        |
+| **`lastHttpStatus`** | <code>number</code>  |                                                        |
 
 
 ### Type Aliases

@@ -99,6 +99,18 @@ export interface DrivingSensorsPlugin {
     getUploadStatus(): Promise<UploadStatus>;
     /** Ask for an upload attempt now (ignores backoff, still respects wifiOnly and AUTH_FAILED). */
     uploadNow(): Promise<void>;
+    /**
+     * Send a small heartbeat to POST {base}/heartbeat every `intervalSec` seconds, to verify that the
+     * native background runtime keeps working. Needs `configureUpload` first. Logs no sensor data.
+     * Android: runs in the foreground service (notification shown). iOS: keeps the app alive with
+     * lowest-power location updates (nothing is recorded; the location indicator is shown).
+     * Idempotent: if already running, the new interval is applied.
+     */
+    startHeartbeat(options?: {
+        intervalSec?: number;
+    }): Promise<void>;
+    stopHeartbeat(): Promise<void>;
+    getHeartbeatStatus(): Promise<HeartbeatStatus>;
 }
 export interface LocationReading {
     /** Epoch ms of the fix. */
@@ -307,4 +319,40 @@ export interface UploadStatus {
     lastHttpStatus?: number;
     /** Epoch ms of the next scheduled attempt while in backoff. */
     nextAttemptAt?: number;
+}
+export interface HeartbeatStatus {
+    running: boolean;
+    intervalSec?: number;
+    /** Heartbeats attempted / succeeded since startHeartbeat. */
+    sent: number;
+    succeeded: number;
+    lastSentAt?: number;
+    lastSuccessAt?: number;
+    lastError?: string;
+    lastHttpStatus?: number;
+}
+/** Body of POST {base}/heartbeat. */
+export interface HeartbeatPayload {
+    deviceId: string;
+    platform: 'android' | 'ios';
+    pluginVersion: string;
+    /** Epoch ms when the heartbeat was created on the device. */
+    ts: number;
+    /** Increments per heartbeat since startHeartbeat (starts at 1); gaps on the server = missed beats. */
+    seq: number;
+    intervalSec: number;
+    /** Seconds since the native runtime (process) started. Resets if the OS killed and restarted it. */
+    processUptimeSec: number;
+    appState: 'foreground' | 'background';
+    /** 0..100, or -1 when unknown. */
+    batteryLevel: number;
+    charging: boolean;
+    /** "wifi", "cellular", "other" or "none". */
+    network: string;
+    tracking: boolean;
+    inTrip: boolean;
+    recording: boolean;
+    pendingEvents: number;
+    pendingChunks: number;
+    uploadState: UploadState;
 }

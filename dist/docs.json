@@ -291,6 +291,44 @@
         "docs": "Ask for an upload attempt now (ignores backoff, still respects wifiOnly and AUTH_FAILED).",
         "complexTypes": [],
         "slug": "uploadnow"
+      },
+      {
+        "name": "startHeartbeat",
+        "signature": "(options?: { intervalSec?: number | undefined; } | undefined) => Promise<void>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ intervalSec?: number | undefined; } | undefined"
+          }
+        ],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Send a small heartbeat to POST {base}/heartbeat every `intervalSec` seconds, to verify that the\nnative background runtime keeps working. Needs `configureUpload` first. Logs no sensor data.\nAndroid: runs in the foreground service (notification shown). iOS: keeps the app alive with\nlowest-power location updates (nothing is recorded; the location indicator is shown).\nIdempotent: if already running, the new interval is applied.",
+        "complexTypes": [],
+        "slug": "startheartbeat"
+      },
+      {
+        "name": "stopHeartbeat",
+        "signature": "() => Promise<void>",
+        "parameters": [],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "",
+        "complexTypes": [],
+        "slug": "stopheartbeat"
+      },
+      {
+        "name": "getHeartbeatStatus",
+        "signature": "() => Promise<HeartbeatStatus>",
+        "parameters": [],
+        "returns": "Promise<HeartbeatStatus>",
+        "tags": [],
+        "docs": "",
+        "complexTypes": [
+          "HeartbeatStatus"
+        ],
+        "slug": "getheartbeatstatus"
       }
     ],
     "properties": []
@@ -1197,6 +1235,71 @@
           "name": "nextAttemptAt",
           "tags": [],
           "docs": "Epoch ms of the next scheduled attempt while in backoff.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        }
+      ]
+    },
+    {
+      "name": "HeartbeatStatus",
+      "slug": "heartbeatstatus",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "running",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "intervalSec",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "sent",
+          "tags": [],
+          "docs": "Heartbeats attempted / succeeded since startHeartbeat.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "succeeded",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "lastSentAt",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "lastSuccessAt",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "lastError",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "lastHttpStatus",
+          "tags": [],
+          "docs": "",
           "complexTypes": [],
           "type": "number | undefined"
         }

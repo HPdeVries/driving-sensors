@@ -82,6 +82,15 @@ class DrivingSensorsWeb extends core.WebPlugin {
     async uploadNow() {
         throw this.unavailable('DrivingSensors is only available on Android and iOS.');
     }
+    async startHeartbeat() {
+        throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+    }
+    async stopHeartbeat() {
+        return;
+    }
+    async getHeartbeatStatus() {
+        return { running: false, sent: 0, succeeded: 0 };
+    }
 }
 
 var web = /*#__PURE__*/Object.freeze({

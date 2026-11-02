@@ -21,7 +21,7 @@ let package = Package(
             ],
             path: "ios/Sources/DrivingSensorsPlugin",
             resources: [.copy("PrivacyInfo.xcprivacy")],
-            linkerSettings: [.linkedLibrary("sqlite3")]),
+            linkerSettings: [.linkedLibrary("sqlite3"), .linkedLibrary("z")]),
         .testTarget(
             name: "DrivingSensorsPluginTests",
             dependencies: ["DrivingSensorsPlugin"],

@@ -19,7 +19,13 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "ackEvents", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getLastReadings", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getCurrentReadings", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "getPluginVersion", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "startRecording", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "stopRecording", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getRecordingStatus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "listRecordingChunks", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getRecordingChunk", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "ackRecordingChunk", returnType: CAPPluginReturnPromise)
     ]
     private let implementation = DrivingSensors()
 
@@ -121,6 +127,59 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         DispatchQueue.global().async {
             self.implementation.ackEvents(upToId: Int64(upToId))
+            call.resolve()
+        }
+    }
+
+    // MARK: - Recording
+
+    @objc func startRecording(_ call: CAPPluginCall) {
+        let options: RecordingOptions
+        do {
+            options = try RecordingOptions.parse(call.options as? [String: Any] ?? [:])
+        } catch let e as DrivingSensorsError {
+            return call.reject(e.message, e.code)
+        } catch {
+            return call.reject(error.localizedDescription, "INTERNAL")
+        }
+        implementation.startRecording(options: options) { result in
+            switch result {
+            case .success(let id): call.resolve(["recordingId": id])
+            case .failure(let e): call.reject(e.message, e.code)
+            }
+        }
+    }
+
+    @objc func stopRecording(_ call: CAPPluginCall) {
+        implementation.stopRecording { call.resolve() }
+    }
+
+    @objc func getRecordingStatus(_ call: CAPPluginCall) {
+        DispatchQueue.global().async { call.resolve(self.implementation.recordingStatus()) }
+    }
+
+    @objc func listRecordingChunks(_ call: CAPPluginCall) {
+        let limit = call.getInt("limit") ?? 100
+        guard limit >= 1 else { return call.reject("limit must be >= 1", "INVALID_ARGUMENT") }
+        DispatchQueue.global().async {
+            call.resolve(["chunks": self.implementation.recordingChunks(limit: limit)])
+        }
+    }
+
+    @objc func getRecordingChunk(_ call: CAPPluginCall) {
+        guard let id = call.getString("chunkId") else { return call.reject("chunkId is required", "INVALID_ARGUMENT") }
+        DispatchQueue.global().async {
+            switch self.implementation.recordingChunk(chunkId: id) {
+            case .success(let r): call.resolve(r)
+            case .failure(let e): call.reject(e.message, e.code)
+            }
+        }
+    }
+
+    @objc func ackRecordingChunk(_ call: CAPPluginCall) {
+        guard let id = call.getString("chunkId") else { return call.reject("chunkId is required", "INVALID_ARGUMENT") }
+        DispatchQueue.global().async {
+            self.implementation.ackRecordingChunk(chunkId: id)
             call.resolve()
         }
     }

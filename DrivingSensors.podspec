@@ -14,7 +14,7 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '15.0'
   s.resource_bundles = { 'DrivingSensorsPlugin' => ['ios/Sources/DrivingSensorsPlugin/PrivacyInfo.xcprivacy'] }
   s.frameworks = 'CoreLocation', 'CoreMotion'
-  s.library = 'sqlite3'
+  s.libraries = 'sqlite3', 'z'
   s.dependency 'Capacitor'
   s.swift_version = '5.1'
 end

@@ -77,6 +77,7 @@ func dsLog(_ message: String) {
 
     /// Called from the plugin's load(): resume if state says active and permission allows.
     func resumeIfNeeded() {
+        resumeRecordingIfNeeded()
         DispatchQueue.main.async {
             guard let data = self.defaults.data(forKey: DrivingSensors.stateKey),
                   let state = try? JSONDecoder().decode(PersistedState.self, from: data),
@@ -125,7 +126,11 @@ func dsLog(_ message: String) {
                 self.locationRunning = false
                 self.motionRunning = false
             }
-            self.manager.stopUpdatingLocation()
+            if self.currentRecorder() == nil {
+                self.manager.stopUpdatingLocation()
+            } else {
+                self.manager.distanceFilter = kCLDistanceFilterNone
+            }
             if self.standaloneMotionCount == 0 { self.motionManager.stopDeviceMotionUpdates() }
             self.defaults.removeObject(forKey: DrivingSensors.stateKey)
             completion()
@@ -148,19 +153,6 @@ func dsLog(_ message: String) {
     }
 
     private func begin(sessionId: String, options: TrackingOptions) {
-        let m = manager
-        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []
-        if modes.contains("location") {
-            m.allowsBackgroundLocationUpdates = true
-            m.showsBackgroundLocationIndicator = true
-        } else {
-            dsLog("WARNING: UIBackgroundModes does not contain 'location'; background tracking is disabled")
-        }
-        m.pausesLocationUpdatesAutomatically = false
-        m.activityType = .automotiveNavigation
-        m.desiredAccuracy = kCLLocationAccuracyBest
-        m.distanceFilter = 10 // idle mode
-
         work.sync {
             self.active = true
             self.sessionId = sessionId
@@ -177,7 +169,25 @@ func dsLog(_ message: String) {
             self.timer?.cancel()
             self.timer = t
         }
-        m.startUpdatingLocation()
+        configureLocation(inTrip: false)
+        manager.startUpdatingLocation()
+    }
+
+    /// Main thread. Shared by tracking and recording; background settings apply to both and
+    /// recording's need (no distance filter) wins while it runs.
+    private func configureLocation(inTrip: Bool) {
+        let m = manager
+        let modes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String] ?? []
+        if modes.contains("location") {
+            m.allowsBackgroundLocationUpdates = true
+            m.showsBackgroundLocationIndicator = true
+        } else {
+            dsLog("WARNING: UIBackgroundModes does not contain 'location'; background location is disabled")
+        }
+        m.pausesLocationUpdatesAutomatically = false
+        m.activityType = .automotiveNavigation
+        m.desiredAccuracy = kCLLocationAccuracyBest
+        m.distanceFilter = (currentRecorder() != nil || inTrip) ? kCLDistanceFilterNone : 10
     }
 
     private func persist(_ state: PersistedState) {
@@ -188,7 +198,7 @@ func dsLog(_ message: String) {
 
     private func applyTripMode(_ inTrip: Bool) {
         guard work.sync(execute: { active }) else { return }
-        manager.distanceFilter = inTrip ? kCLDistanceFilterNone : 10
+        manager.distanceFilter = (inTrip || currentRecorder() != nil) ? kCLDistanceFilterNone : 10
         if inTrip {
             startMotion()
         } else {
@@ -280,6 +290,7 @@ func dsLog(_ message: String) {
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        currentRecorder()?.onLocation(locations)
         work.async { self.process(locations) }
     }
 
@@ -369,6 +380,185 @@ func dsLog(_ message: String) {
                 }
             }
         }
+    }
+
+    // MARK: - Recording (v0.2.0)
+
+    private struct PersistedRecording: Codable {
+        var recordingId: String
+        var options: RecordingOptions
+        var nextSeq: Int
+        var startedAt: Int64
+    }
+
+    private static let recordingKey = "DrivingSensors.recording"
+    private static let recordingStopReasonKey = "DrivingSensors.recordingStopReason"
+    private let recordingLock = NSLock()
+    private var recorderRef: SensorRecorder?
+    private var recordingDirectory: URL?
+
+    private func currentRecorder() -> SensorRecorder? {
+        recordingLock.lock(); defer { recordingLock.unlock() }
+        return recorderRef
+    }
+
+    private func setRecorder(_ r: SensorRecorder?) {
+        recordingLock.lock(); recorderRef = r; recordingLock.unlock()
+    }
+
+    private func recordingDir() throws -> URL {
+        recordingLock.lock(); defer { recordingLock.unlock() }
+        if let d = recordingDirectory { return d }
+        let d = try RecordingFiles.defaultDirectory()
+        recordingDirectory = d
+        return d
+    }
+
+    /// Plugin load: finalize leftover parts (before any new writer exists), then resume.
+    private func resumeRecordingIfNeeded() {
+        DispatchQueue.global(qos: .utility).async {
+            guard let dir = try? self.recordingDir() else { return }
+            RecordingFiles.finalizeLeftovers(in: dir)
+            DispatchQueue.main.async {
+                guard let data = self.defaults.data(forKey: DrivingSensors.recordingKey),
+                      let st = try? JSONDecoder().decode(PersistedRecording.self, from: data) else { return }
+                guard self.currentRecorder() == nil else { return }
+                guard self.hasLocationPermission() else {
+                    dsLog("persisted recording not resumed: location permission missing")
+                    self.defaults.removeObject(forKey: DrivingSensors.recordingKey)
+                    self.defaults.set("PERMISSION_LOST", forKey: DrivingSensors.recordingStopReasonKey)
+                    return
+                }
+                self.startRecorder(dir: dir, id: st.recordingId, options: st.options, seq: st.nextSeq, startedAt: st.startedAt)
+            }
+        }
+    }
+
+    func startRecording(options: RecordingOptions, completion: @escaping (Result<String, DrivingSensorsError>) -> Void) {
+        DispatchQueue.main.async {
+            if let existing = self.currentRecorder() { return completion(.success(existing.recordingId)) }
+            guard CLLocationManager.locationServicesEnabled() else {
+                return completion(.failure(.init(message: "Location services are disabled", code: "LOCATION_DISABLED")))
+            }
+            guard self.hasLocationPermission() else {
+                return completion(.failure(.init(message: "Location permission not granted", code: "PERMISSION_DENIED")))
+            }
+            let dir: URL
+            do { dir = try self.recordingDir() } catch {
+                return completion(.failure(.init(message: "Recording storage unavailable: \(error.localizedDescription)", code: "INTERNAL")))
+            }
+            let id = UUID().uuidString.lowercased()
+            let startedAt = Int64(Date().timeIntervalSince1970 * 1000)
+            self.defaults.removeObject(forKey: DrivingSensors.recordingStopReasonKey)
+            self.startRecorder(dir: dir, id: id, options: options, seq: 0, startedAt: startedAt)
+            completion(.success(id))
+        }
+    }
+
+    /// Main thread.
+    private func startRecorder(dir: URL, id: String, options: RecordingOptions, seq: Int, startedAt: Int64) {
+        persistRecording(PersistedRecording(recordingId: id, options: options, nextSeq: seq, startedAt: startedAt))
+        let rec = SensorRecorder(
+            directory: dir, recordingId: id, options: options, startSeq: seq, startedAt: startedAt,
+            motion: motionManager,
+            onSeqAdvance: { [weak self] next in
+                self?.persistRecording(PersistedRecording(recordingId: id, options: options, nextSeq: next, startedAt: startedAt))
+            },
+            onStop: { [weak self] reason in
+                DispatchQueue.main.async { self?.stopRecordingInternal(reason: reason) {} }
+            })
+        setRecorder(rec)
+        configureLocation(inTrip: work.sync { trip.inTrip })
+        manager.startUpdatingLocation()
+        rec.start()
+    }
+
+    private func persistRecording(_ s: PersistedRecording) {
+        if let data = try? JSONEncoder().encode(s) { defaults.set(data, forKey: DrivingSensors.recordingKey) }
+    }
+
+    func stopRecording(completion: @escaping () -> Void) {
+        DispatchQueue.main.async { self.stopRecordingInternal(reason: nil, completion: completion) }
+    }
+
+    /// Main thread. Sensors stop at once; the final chunk is finalized off the main thread.
+    private func stopRecordingInternal(reason: String?, completion: @escaping () -> Void) {
+        guard let rec = currentRecorder() else { return completion() }
+        setRecorder(nil)
+        defaults.removeObject(forKey: DrivingSensors.recordingKey)
+        if let reason { defaults.set(reason, forKey: DrivingSensors.recordingStopReasonKey) }
+        rec.stopSensors()
+        if work.sync(execute: { active }) {
+            manager.distanceFilter = work.sync { trip.inTrip } ? kCLDistanceFilterNone : 10
+        } else {
+            manager.stopUpdatingLocation()
+        }
+        DispatchQueue.global(qos: .utility).async {
+            rec.finish()
+            completion()
+        }
+    }
+
+    func recordingStatus() -> [String: Any] {
+        let rec = currentRecorder()
+        var out: [String: Any] = ["recording": rec != nil]
+        let dir = try? recordingDir()
+        out["chunksPending"] = dir.map { RecordingFiles.listChunks(in: $0, limit: Int.max).count } ?? 0
+        out["bytesPending"] = dir.map { RecordingFiles.totalBytes(in: $0) } ?? 0
+        out["available"] = SensorRecorder.availability(motionManager)
+        if let rec {
+            out["recordingId"] = rec.recordingId
+            out["startedAt"] = rec.startedAt
+            out["measuredHz"] = rec.measuredHz()
+        } else if let reason = defaults.string(forKey: DrivingSensors.recordingStopReasonKey) {
+            out["stopReason"] = reason
+        }
+        return out
+    }
+
+    func recordingChunks(limit: Int) -> [[String: Any]] {
+        guard let dir = try? recordingDir() else { return [] }
+        return RecordingFiles.listChunks(in: dir, limit: limit).map { $0.infoDictionary }
+    }
+
+    func recordingChunk(chunkId: String) -> Result<[String: Any], DrivingSensorsError> {
+        guard RecordingChunkId.isValid(chunkId), let dir = try? recordingDir(),
+              let json = try? Data(contentsOf: dir.appendingPathComponent(chunkId + ".json")),
+              let meta = try? JSONDecoder().decode(RecordingChunkMeta.self, from: json),
+              let gz = try? Data(contentsOf: dir.appendingPathComponent(chunkId + ".csv.gz")) else {
+            return .failure(.invalid("Unknown chunkId"))
+        }
+        var out = meta.infoDictionary
+        out["bytes"] = gz.count
+        out["format"] = "csv-v1"
+        out["encoding"] = "gzip+base64"
+        out["platform"] = "ios"
+        out["deviceModel"] = DrivingSensors.deviceModel()
+        out["osVersion"] = DrivingSensors.osVersion
+        out["pluginVersion"] = DrivingSensorsVersion.current
+        out["sensorInfo"] = meta.sensorInfo ?? [:]
+        out["data"] = gz.base64EncodedString()
+        return .success(out)
+    }
+
+    func ackRecordingChunk(chunkId: String) {
+        guard RecordingChunkId.isValid(chunkId), let dir = try? recordingDir() else { return }
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(chunkId + ".csv.gz"))
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(chunkId + ".json"))
+    }
+
+    static func deviceModel() -> String {
+        var u = utsname()
+        uname(&u)
+        return withUnsafePointer(to: &u.machine) {
+            $0.withMemoryRebound(to: CChar.self, capacity: Int(_SYS_NAMELEN)) { String(cString: $0) }
+        }
+    }
+
+    /// Same value as UIDevice.systemVersion, without touching UIKit off the main thread.
+    static var osVersion: String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return v.patchVersion == 0 ? "\(v.majorVersion).\(v.minorVersion)" : "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)"
     }
 
     // MARK: - Buffer
@@ -478,6 +668,10 @@ func dsLog(_ message: String) {
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if currentRecorder() != nil, !hasLocationPermission() {
+            dsLog("recording stopped: location permission lost")
+            stopRecordingInternal(reason: "PERMISSION_LOST") {}
+        }
         if pendingAuth != nil, manager.authorizationStatus != .notDetermined {
             finishPendingAuth()
         }

@@ -22,6 +22,26 @@ Sync native files
 npx cap sync
 ```
 
+## iOS background relaunch (v0.3.1)
+
+Tracking, recording and the heartbeat resume from their persisted state whenever the plugin loads. With "Always" location authorization the plugin also monitors significant location changes while any of them is persisted, so iOS relaunches a terminated app (swipe-away, or after a reboot once the device is unlocked) in the background on the next significant move. Without "Always", nothing is relaunched: everything resumes the next time the user opens the app.
+
+On a background relaunch the plugin resumes only if the Capacitor bridge (and so the plugin's `load()`) is created. If your host app does not create the bridge on a background launch, call `DrivingSensors.resumeFromLaunch()` from the app delegate. It is idempotent, so it is safe alongside the normal plugin load:
+
+```swift
+import DrivingSensorsPlugin
+
+func application(_ application: UIApplication,
+                 didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+    if launchOptions?[.location] != nil {
+        DrivingSensors.resumeFromLaunch()
+    }
+    return true
+}
+```
+
+ODC/MABS-generated apps may not offer an AppDelegate hook. Whether the bridge is created on a background relaunch there is unverified: test on a device (swipe away the app while tracking with "Always", then drive or move) before relying on it.
+
 ## API
 
 <docgen-index>
@@ -621,7 +641,7 @@ getHeartbeatStatus() => Promise<HeartbeatStatus>
 
 Construct a type with a set of properties K of type T
 
-<code>{ [P in K]: T; }</code>
+<code>{ [P in K]: T; }</code>
 
 
 #### UploadState

@@ -88,6 +88,17 @@ export interface DrivingSensorsPlugin {
     ackRecordingChunk(options: {
         chunkId: string;
     }): Promise<void>;
+    /**
+     * Configure native upload to your own HTTPS endpoint (e.g. an ODC exposed REST API).
+     * The token is stored in the Android Keystore / iOS Keychain and never returned to JS.
+     * Replaces any previous configuration and clears an AUTH_FAILED state.
+     */
+    configureUpload(options: UploadConfig): Promise<void>;
+    /** Remove the upload configuration and token (e.g. on logout). Pending data stays on the device. */
+    clearUpload(): Promise<void>;
+    getUploadStatus(): Promise<UploadStatus>;
+    /** Ask for an upload attempt now (ignores backoff, still respects wifiOnly and AUTH_FAILED). */
+    uploadNow(): Promise<void>;
 }
 export interface LocationReading {
     /** Epoch ms of the fix. */
@@ -255,4 +266,45 @@ export interface RecordingChunk extends RecordingChunkInfo {
     sensorInfo: Record<string, string>;
     /** Base64 of the gzip-compressed CSV. */
     data: string;
+}
+export interface UploadConfig {
+    /** HTTPS base URL, e.g. "https://<tenant>-dev.outsystems.app/DriveMe/rest/Telemetry". No trailing slash needed. */
+    endpointBaseUrl: string;
+    /** Device id issued by your server at registration. Sent as header X-Device-Id. */
+    deviceId: string;
+    /** Secret device token issued by your server. Sent as "Authorization: Bearer <token>". */
+    token: string;
+    /** Upload finished recording chunks to POST {base}/chunks. Default true. */
+    uploadRecordings?: boolean;
+    /** Upload trip events from the buffer to POST {base}/events and ack them natively. Default true. */
+    uploadEvents?: boolean;
+    /** Only upload on unmetered networks (Wi-Fi). Default false. */
+    wifiOnly?: boolean;
+    /** Max events per POST /events. Default 500, max 1000. */
+    eventBatchSize?: number;
+}
+export type UploadState = 'disabled' | 'idle' | 'uploading' | 'waiting_network' | 'backoff' | 'auth_failed';
+export interface UploadStatus {
+    configured: boolean;
+    state: UploadState;
+    endpointBaseUrl?: string;
+    deviceId?: string;
+    uploadRecordings?: boolean;
+    uploadEvents?: boolean;
+    wifiOnly?: boolean;
+    /** Finished recording chunks still on the device (excluding rejected ones). */
+    pendingChunks: number;
+    /** Trip events still in the buffer. */
+    pendingEvents: number;
+    /** Chunks the server refused with 400/413/422; kept on the device, not retried. */
+    rejectedChunks: number;
+    /** Counters since the last configureUpload. */
+    uploadedChunks: number;
+    uploadedEvents: number;
+    lastSuccessAt?: number;
+    lastErrorAt?: number;
+    lastError?: string;
+    lastHttpStatus?: number;
+    /** Epoch ms of the next scheduled attempt while in backoff. */
+    nextAttemptAt?: number;
 }

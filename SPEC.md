@@ -143,3 +143,41 @@ Numbers: up to 6 decimals for acc/gyr/mag/bar (Locale.ROOT / POSIX formatting, `
 - `ackRecordingChunk({chunkId})`: delete .gz + .json.
 - `getRecordingStatus`: measuredHz from a rolling 5-s window of per-sensor sample counts kept in memory (omit when not recording).
 - All file IO off the main/UI thread.
+
+## v0.3.0: native upload to your own endpoint
+
+Goal: data reaches the backend without depending on the WebView running. The backend (an ODC exposed REST API) authenticates the device and forwards data to external APIs.
+
+### Configuration and secrets
+
+- `configureUpload`: validate `endpointBaseUrl` is `https://` (else INVALID_ARGUMENT), deviceId and token non-empty, eventBatchSize clamp [1, 1000]. Strip trailing `/`.
+- Token storage: Android: AES-256-GCM key in the AndroidKeyStore (alias `driving_sensors_upload`), ciphertext + IV in SharedPreferences `driving_sensors_upload`; iOS: Keychain generic password (service `nl.flexlogic.drivingsensors.upload`, account = deviceId) with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` so it is readable in the background after the first unlock. Never log the token; never return it.
+- Non-secret config (base URL, deviceId, flags, counters, state) in SharedPreferences / UserDefaults; it survives restarts.
+- `clearUpload`: delete token + config, state `disabled`. Data on the device is kept.
+
+### HTTP
+
+Common headers: `Authorization: Bearer <token>`, `X-Device-Id: <deviceId>`, `X-Plugin-Version: <PLUGIN_VERSION>`, `X-Platform: android|ios`, `Content-Type: application/json; charset=utf-8`. Timeouts: connect 15 s, request 60 s. No redirects followed to non-https.
+
+- `POST {base}/chunks`, body: the exact `RecordingChunk` object returned by `getRecordingChunk` (incl. `data` base64, `sensorInfo`), plus `"deviceId"`. One chunk per request, oldest first.
+- `POST {base}/events`, body: `{"deviceId": "...", "platform": "...", "pluginVersion": "...", "events": [TelemetryEvent, ...]}` with up to eventBatchSize events in ascending id order (same objects as `getBufferedEvents`, nulls omitted).
+
+Response handling (per request):
+- 2xx or 409 (duplicate): success. Chunk: delete it (same as ackRecordingChunk). Events: ack up to the highest id sent.
+- 401 or 403: state `auth_failed`, stop all uploading until the next `configureUpload`. Data kept.
+- 400, 413, 422 for a chunk: mark it rejected (rename `.json` → `.rejected.json`, keep the `.gz`; listRecordingChunks no longer returns it), continue with the next one. For an events batch: halve the batch size and retry once; if a single event is rejected, record lastError and go to backoff (never drop events silently).
+- Anything else (5xx, timeouts, DNS, no network): backoff: 30 s, doubling to max 30 min, reset after a success. `nextAttemptAt` reflects it.
+- Record lastHttpStatus / lastError / lastErrorAt / lastSuccessAt.
+
+Order per run: events first (small, important), then chunks. A run ends when nothing is pending, on auth failure, or on an error leading to backoff. Only one run at a time per process.
+
+### Scheduling
+
+- Triggers: `configureUpload`, `uploadNow`, plugin load, a recording chunk being finalized, every 60 s while tracking or recording is active (if anything is pending), connectivity regained, and a periodic catch-up.
+- Android: WorkManager. Unique one-time work `driving_sensors_upload` (ExistingWorkPolicy.KEEP, or APPEND_OR_REPLACE when a run is active so a new trigger isn't lost) with constraint NetworkType.CONNECTED or UNMETERED (wifiOnly); plus unique periodic work every 15 min (KEEP). The worker performs the run synchronously (HttpURLConnection; no new HTTP library). Backoff is handled by the plugin's own `nextAttemptAt` (the worker re-enqueues itself with an initial delay) rather than WorkManager's retry policy, so status stays accurate. Add the `androidx.work:work-runtime-ktx` dependency.
+- iOS: URLSession (default configuration, `waitsForConnectivity = true`, `allowsExpensiveNetworkAccess`/`allowsConstrainedNetworkAccess` = !wifiOnly) on a dedicated serial queue; each run wrapped in `UIApplication.beginBackgroundTask`. While tracking/recording keeps the app alive in the background, runs happen on the triggers above; when the app is suspended, uploads resume at the next launch/foreground (document this limitation).
+
+### Interplay with the app-side flow
+
+- If `uploadEvents` is true the native uploader acks events; an app that also calls getBufferedEvents/ackEvents may see events disappear: use one of the two flows. Same for recording chunks and `uploadRecordings`.
+- `getUploadStatus.pendingChunks/pendingEvents` count what is on the device right now.

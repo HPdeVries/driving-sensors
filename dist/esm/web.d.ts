@@ -1,5 +1,5 @@
 import { WebPlugin } from '@capacitor/core';
-import type { DrivingSensorsPlugin, RecordingChunk, RecordingChunkInfo, RecordingStatus, PermissionStatus, SensorReadings, TelemetryEvent, TrackingStatus } from './definitions';
+import type { DrivingSensorsPlugin, RecordingChunk, RecordingChunkInfo, RecordingStatus, UploadStatus, PermissionStatus, SensorReadings, TelemetryEvent, TrackingStatus } from './definitions';
 export declare class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin {
     checkPermissions(): Promise<PermissionStatus>;
     requestPermissions(): Promise<PermissionStatus>;
@@ -28,4 +28,8 @@ export declare class DrivingSensorsWeb extends WebPlugin implements DrivingSenso
     }>;
     getRecordingChunk(): Promise<RecordingChunk>;
     ackRecordingChunk(): Promise<void>;
+    configureUpload(): Promise<void>;
+    clearUpload(): Promise<void>;
+    getUploadStatus(): Promise<UploadStatus>;
+    uploadNow(): Promise<void>;
 }

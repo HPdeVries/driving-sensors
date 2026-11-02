@@ -5,6 +5,7 @@ import type {
   RecordingChunk,
   RecordingChunkInfo,
   RecordingStatus,
+  UploadStatus,
   PermissionStatus,
   SensorReadings,
   TelemetryEvent,
@@ -82,5 +83,29 @@ export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin
 
   async ackRecordingChunk(): Promise<void> {
     return;
+  }
+
+  async configureUpload(): Promise<void> {
+    throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+  }
+
+  async clearUpload(): Promise<void> {
+    return;
+  }
+
+  async getUploadStatus(): Promise<UploadStatus> {
+    return {
+      configured: false,
+      state: 'disabled',
+      pendingChunks: 0,
+      pendingEvents: 0,
+      rejectedChunks: 0,
+      uploadedChunks: 0,
+      uploadedEvents: 0,
+    };
+  }
+
+  async uploadNow(): Promise<void> {
+    throw this.unavailable('DrivingSensors is only available on Android and iOS.');
   }
 }

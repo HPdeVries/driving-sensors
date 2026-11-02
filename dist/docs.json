@@ -241,6 +241,56 @@
         "docs": "Delete a finished chunk after it has been delivered. Unknown ids resolve without error.",
         "complexTypes": [],
         "slug": "ackrecordingchunk"
+      },
+      {
+        "name": "configureUpload",
+        "signature": "(options: UploadConfig) => Promise<void>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "UploadConfig"
+          }
+        ],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Configure native upload to your own HTTPS endpoint (e.g. an ODC exposed REST API).\nThe token is stored in the Android Keystore / iOS Keychain and never returned to JS.\nReplaces any previous configuration and clears an AUTH_FAILED state.",
+        "complexTypes": [
+          "UploadConfig"
+        ],
+        "slug": "configureupload"
+      },
+      {
+        "name": "clearUpload",
+        "signature": "() => Promise<void>",
+        "parameters": [],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Remove the upload configuration and token (e.g. on logout). Pending data stays on the device.",
+        "complexTypes": [],
+        "slug": "clearupload"
+      },
+      {
+        "name": "getUploadStatus",
+        "signature": "() => Promise<UploadStatus>",
+        "parameters": [],
+        "returns": "Promise<UploadStatus>",
+        "tags": [],
+        "docs": "",
+        "complexTypes": [
+          "UploadStatus"
+        ],
+        "slug": "getuploadstatus"
+      },
+      {
+        "name": "uploadNow",
+        "signature": "() => Promise<void>",
+        "parameters": [],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Ask for an upload attempt now (ignores backoff, still respects wifiOnly and AUTH_FAILED).",
+        "complexTypes": [],
+        "slug": "uploadnow"
       }
     ],
     "properties": []
@@ -963,6 +1013,194 @@
           "type": "string"
         }
       ]
+    },
+    {
+      "name": "UploadConfig",
+      "slug": "uploadconfig",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "endpointBaseUrl",
+          "tags": [],
+          "docs": "HTTPS base URL, e.g. \"https://<tenant>-dev.outsystems.app/DriveMe/rest/Telemetry\". No trailing slash needed.",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "deviceId",
+          "tags": [],
+          "docs": "Device id issued by your server at registration. Sent as header X-Device-Id.",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "token",
+          "tags": [],
+          "docs": "Secret device token issued by your server. Sent as \"Authorization: Bearer <token>\".",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "uploadRecordings",
+          "tags": [],
+          "docs": "Upload finished recording chunks to POST {base}/chunks. Default true.",
+          "complexTypes": [],
+          "type": "boolean | undefined"
+        },
+        {
+          "name": "uploadEvents",
+          "tags": [],
+          "docs": "Upload trip events from the buffer to POST {base}/events and ack them natively. Default true.",
+          "complexTypes": [],
+          "type": "boolean | undefined"
+        },
+        {
+          "name": "wifiOnly",
+          "tags": [],
+          "docs": "Only upload on unmetered networks (Wi-Fi). Default false.",
+          "complexTypes": [],
+          "type": "boolean | undefined"
+        },
+        {
+          "name": "eventBatchSize",
+          "tags": [],
+          "docs": "Max events per POST /events. Default 500, max 1000.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        }
+      ]
+    },
+    {
+      "name": "UploadStatus",
+      "slug": "uploadstatus",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "configured",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "state",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [
+            "UploadState"
+          ],
+          "type": "UploadState"
+        },
+        {
+          "name": "endpointBaseUrl",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "deviceId",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "uploadRecordings",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean | undefined"
+        },
+        {
+          "name": "uploadEvents",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean | undefined"
+        },
+        {
+          "name": "wifiOnly",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean | undefined"
+        },
+        {
+          "name": "pendingChunks",
+          "tags": [],
+          "docs": "Finished recording chunks still on the device (excluding rejected ones).",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "pendingEvents",
+          "tags": [],
+          "docs": "Trip events still in the buffer.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "rejectedChunks",
+          "tags": [],
+          "docs": "Chunks the server refused with 400/413/422; kept on the device, not retried.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "uploadedChunks",
+          "tags": [],
+          "docs": "Counters since the last configureUpload.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "uploadedEvents",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "lastSuccessAt",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "lastErrorAt",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "lastError",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "lastHttpStatus",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "nextAttemptAt",
+          "tags": [],
+          "docs": "Epoch ms of the next scheduled attempt while in backoff.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        }
+      ]
     }
   ],
   "enums": [],
@@ -1051,6 +1289,37 @@
             "K",
             "T"
           ]
+        }
+      ]
+    },
+    {
+      "name": "UploadState",
+      "slug": "uploadstate",
+      "docs": "",
+      "types": [
+        {
+          "text": "'disabled'",
+          "complexTypes": []
+        },
+        {
+          "text": "'idle'",
+          "complexTypes": []
+        },
+        {
+          "text": "'uploading'",
+          "complexTypes": []
+        },
+        {
+          "text": "'waiting_network'",
+          "complexTypes": []
+        },
+        {
+          "text": "'backoff'",
+          "complexTypes": []
+        },
+        {
+          "text": "'auth_failed'",
+          "complexTypes": []
         }
       ]
     }

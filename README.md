@@ -42,6 +42,10 @@ npx cap sync
 * [`listRecordingChunks(...)`](#listrecordingchunks)
 * [`getRecordingChunk(...)`](#getrecordingchunk)
 * [`ackRecordingChunk(...)`](#ackrecordingchunk)
+* [`configureUpload(...)`](#configureupload)
+* [`clearUpload()`](#clearupload)
+* [`getUploadStatus()`](#getuploadstatus)
+* [`uploadNow()`](#uploadnow)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
 
@@ -294,6 +298,56 @@ Delete a finished chunk after it has been delivered. Unknown ids resolve without
 --------------------
 
 
+### configureUpload(...)
+
+```typescript
+configureUpload(options: UploadConfig) => Promise<void>
+```
+
+Configure native upload to your own HTTPS endpoint (e.g. an ODC exposed REST API).
+The token is stored in the Android Keystore / iOS Keychain and never returned to JS.
+Replaces any previous configuration and clears an AUTH_FAILED state.
+
+| Param         | Type                                                  |
+| ------------- | ----------------------------------------------------- |
+| **`options`** | <code><a href="#uploadconfig">UploadConfig</a></code> |
+
+--------------------
+
+
+### clearUpload()
+
+```typescript
+clearUpload() => Promise<void>
+```
+
+Remove the upload configuration and token (e.g. on logout). Pending data stays on the device.
+
+--------------------
+
+
+### getUploadStatus()
+
+```typescript
+getUploadStatus() => Promise<UploadStatus>
+```
+
+**Returns:** <code>Promise&lt;<a href="#uploadstatus">UploadStatus</a>&gt;</code>
+
+--------------------
+
+
+### uploadNow()
+
+```typescript
+uploadNow() => Promise<void>
+```
+
+Ask for an upload attempt now (ignores backoff, still respects wifiOnly and AUTH_FAILED).
+
+--------------------
+
+
 ### Interfaces
 
 
@@ -453,6 +507,42 @@ Delete a finished chunk after it has been delivered. Unknown ids resolve without
 | **`data`**          | <code>string</code>                                             | Base64 of the gzip-compressed CSV.                            |
 
 
+#### UploadConfig
+
+| Prop                   | Type                 | Description                                                                                                        |
+| ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **`endpointBaseUrl`**  | <code>string</code>  | HTTPS base URL, e.g. "https://&lt;tenant&gt;-dev.outsystems.app/DriveMe/rest/Telemetry". No trailing slash needed. |
+| **`deviceId`**         | <code>string</code>  | Device id issued by your server at registration. Sent as header X-Device-Id.                                       |
+| **`token`**            | <code>string</code>  | Secret device token issued by your server. Sent as "Authorization: Bearer &lt;token&gt;".                          |
+| **`uploadRecordings`** | <code>boolean</code> | Upload finished recording chunks to POST {base}/chunks. Default true.                                              |
+| **`uploadEvents`**     | <code>boolean</code> | Upload trip events from the buffer to POST {base}/events and ack them natively. Default true.                      |
+| **`wifiOnly`**         | <code>boolean</code> | Only upload on unmetered networks (Wi-Fi). Default false.                                                          |
+| **`eventBatchSize`**   | <code>number</code>  | Max events per POST /events. Default 500, max 1000.                                                                |
+
+
+#### UploadStatus
+
+| Prop                   | Type                                                | Description                                                                  |
+| ---------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **`configured`**       | <code>boolean</code>                                |                                                                              |
+| **`state`**            | <code><a href="#uploadstate">UploadState</a></code> |                                                                              |
+| **`endpointBaseUrl`**  | <code>string</code>                                 |                                                                              |
+| **`deviceId`**         | <code>string</code>                                 |                                                                              |
+| **`uploadRecordings`** | <code>boolean</code>                                |                                                                              |
+| **`uploadEvents`**     | <code>boolean</code>                                |                                                                              |
+| **`wifiOnly`**         | <code>boolean</code>                                |                                                                              |
+| **`pendingChunks`**    | <code>number</code>                                 | Finished recording chunks still on the device (excluding rejected ones).     |
+| **`pendingEvents`**    | <code>number</code>                                 | Trip events still in the buffer.                                             |
+| **`rejectedChunks`**   | <code>number</code>                                 | Chunks the server refused with 400/413/422; kept on the device, not retried. |
+| **`uploadedChunks`**   | <code>number</code>                                 | Counters since the last configureUpload.                                     |
+| **`uploadedEvents`**   | <code>number</code>                                 |                                                                              |
+| **`lastSuccessAt`**    | <code>number</code>                                 |                                                                              |
+| **`lastErrorAt`**      | <code>number</code>                                 |                                                                              |
+| **`lastError`**        | <code>string</code>                                 |                                                                              |
+| **`lastHttpStatus`**   | <code>number</code>                                 |                                                                              |
+| **`nextAttemptAt`**    | <code>number</code>                                 | Epoch ms of the next scheduled attempt while in backoff.                     |
+
+
 ### Type Aliases
 
 
@@ -476,5 +566,10 @@ Delete a finished chunk after it has been delivered. Unknown ids resolve without
 Construct a type with a set of properties K of type T
 
 <code>{ [P in K]: T; }</code>
+
+
+#### UploadState
+
+<code>'disabled' | 'idle' | 'uploading' | 'waiting_network' | 'backoff' | 'auth_failed'</code>
 
 </docgen-api>

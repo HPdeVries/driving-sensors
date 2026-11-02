@@ -55,5 +55,25 @@ export class DrivingSensorsWeb extends WebPlugin {
     async ackRecordingChunk() {
         return;
     }
+    async configureUpload() {
+        throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+    }
+    async clearUpload() {
+        return;
+    }
+    async getUploadStatus() {
+        return {
+            configured: false,
+            state: 'disabled',
+            pendingChunks: 0,
+            pendingEvents: 0,
+            rejectedChunks: 0,
+            uploadedChunks: 0,
+            uploadedEvents: 0,
+        };
+    }
+    async uploadNow() {
+        throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+    }
 }
 //# sourceMappingURL=web.js.map

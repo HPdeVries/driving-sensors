@@ -131,7 +131,9 @@ final class RecordingWriter: @unchecked Sendable {
         handle = nil
         partURL = nil
         do {
-            _ = try RecordingFiles.finalizePart(url, sensorInfo: sensorInfo, stats: stats)
+            if try RecordingFiles.finalizePart(url, sensorInfo: sensorInfo, stats: stats) != nil {
+                NotificationCenter.default.post(name: .drivingSensorsChunkFinalized, object: nil)
+            }
         } catch {
             dsLog("could not finalize chunk: \(error)")
         }

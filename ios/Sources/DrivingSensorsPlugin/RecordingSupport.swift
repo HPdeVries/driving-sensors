@@ -242,6 +242,19 @@ struct ChunkStats {
 
 enum RecordingFiles {
     static let partSuffix = ".csv.part"
+    static let rejectedSuffix = ".rejected.json"
+
+    /// The server refused this chunk (400/413/422): `<id>.json` becomes `<id>.rejected.json`, the
+    /// `.gz` stays. It is no longer listed but still counts towards storage.
+    static func rejectChunk(_ chunkId: String, in dir: URL) {
+        try? FileManager.default.moveItem(at: dir.appendingPathComponent(chunkId + ".json"),
+                                          to: dir.appendingPathComponent(chunkId + rejectedSuffix))
+    }
+
+    static func rejectedCount(in dir: URL) -> Int {
+        ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasSuffix(rejectedSuffix) }.count
+    }
 
     /// Turns `<chunkId>.csv.part` into `.csv.gz` + `.json` and deletes the part. Data after the
     /// last newline (a torn write) is dropped. Parts without samples are deleted and give nil.
@@ -302,7 +315,7 @@ enum RecordingFiles {
     static func listChunks(in dir: URL, limit: Int) -> [RecordingChunkMeta] {
         let urls = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
         var metas: [RecordingChunkMeta] = []
-        for u in urls where u.pathExtension == "json" {
+        for u in urls where u.pathExtension == "json" && !u.lastPathComponent.hasSuffix(rejectedSuffix) {
             guard let data = try? Data(contentsOf: u), let m = try? JSONDecoder().decode(RecordingChunkMeta.self, from: data),
                   FileManager.default.fileExists(atPath: dir.appendingPathComponent(m.chunkId + ".csv.gz").path) else { continue }
             metas.append(m)

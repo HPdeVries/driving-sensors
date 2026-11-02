@@ -1,6 +1,6 @@
 {
   "name": "driving-sensors",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Background driving telemetry (speed, harsh accel/brake, position) buffered natively for OutSystems ODC apps",
   "main": "dist/plugin.cjs.js",
   "module": "dist/esm/index.js",

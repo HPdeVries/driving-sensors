@@ -1,6 +1,6 @@
 import { WebPlugin } from '@capacitor/core';
 // Kept in sync with package.json by scripts/sync-version.mjs. Do not edit by hand.
-const PLUGIN_VERSION = '0.1.2';
+const PLUGIN_VERSION = '0.2.0';
 export class DrivingSensorsWeb extends WebPlugin {
     async checkPermissions() {
         throw this.unavailable('DrivingSensors is only available on Android and iOS.');

@@ -192,3 +192,23 @@ Order per run: events first (small, important), then chunks. A run ends when not
 - Payload fields: processUptimeSec from process start (Android: `SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()`; iOS: `ProcessInfo.processInfo.systemUptime - <uptime captured at plugin class load>`). appState from the Activity/UIApplication state (Android: ProcessLifecycleOwner or a simple started-activities counter is fine; iOS: `UIApplication.shared.applicationState` read on main). batteryLevel/charging from BatteryManager / UIDevice (enable battery monitoring). network from ConnectivityManager / NWPathMonitor.
 - `stopHeartbeat`: stop the timer, release the keep-alive (iOS: stop location updates if nothing else needs them; Android: stop the service if nothing else runs), clear persisted running flag.
 - `getHeartbeatStatus`: counters since startHeartbeat.
+
+## v0.3.1: resume after process stop and device reboot
+
+No API changes. Persisted state (tracking, recording, heartbeat, upload config) already exists; this release makes resuming reliable and automatic where the OS allows it.
+
+### Resume rules (both platforms)
+- Every consumer (tracking, recording, heartbeat) resumes from its persisted state whenever the native runtime starts: plugin load, Android service (re)start, boot, iOS background relaunch. Recording resumes with the same recordingId and the next seq; leftover `.part` files are finalized first.
+- Persisted state is only cleared by the matching stop method or by an explicit stopReason (STORAGE_FULL, PERMISSION_LOST, ERROR). A process kill, force-stop, service destroy, OEM "stop" button or `onTimeout` must NOT clear it. Audit every code path that clears persisted state and add tests proving that destroying/tearing down the service (without a stop call) keeps the state.
+- Resume requires foreground location permission; without it the consumer stays persisted but idle (no stopReason) and resumes once permission is back and the runtime starts again.
+
+### Android: boot
+- Add a `BOOT_COMPLETED` (and `MY_PACKAGE_REPLACED`) BroadcastReceiver in the plugin manifest (`RECEIVE_BOOT_COMPLETED` permission, `exported="false"` is not allowed for system broadcasts: use `exported="true"` with no data, standard pattern). On receive: if any consumer is persisted AND fine location AND background location (`ACCESS_BACKGROUND_LOCATION`, API 29+) are granted, start the foreground service (it resumes everything). Without background location Android 14+ forbids starting a location foreground service from the background: then do not start, only schedule the upload worker, and log why.
+- Wrap `startForegroundService` in try/catch for `ForegroundServiceStartNotAllowedException` (API 31+) everywhere it is called from a background context; on failure schedule the upload worker and retry the start on the next plugin load.
+- Implement `Service.onTimeout(int, int)` (API 35) defensively: stopSelf without clearing state.
+- Also re-ensure the periodic upload work on boot.
+
+### iOS: relaunch
+- While any consumer is persisted and authorization is `.authorizedAlways`, also call `startMonitoringSignificantLocationChanges()` on the shared CLLocationManager (stop it when no consumer remains). iOS then relaunches a terminated app (after swipe-away or reboot, once unlocked) in the background on a significant location change.
+- On such a launch the plugin's `load()` runs when the Capacitor bridge is created; resume all persisted consumers there (existing `resumeIfNeeded`), including the heartbeat keep-alive. If the bridge is not created on background launch, document it: the plugin cannot fix that alone (needs an AppDelegate hook), so add a public static `DrivingSensors.resumeFromLaunch()` entry point that an app delegate can call, and note it in the README.
+- Without "Always" nothing changes: resume on next app open.

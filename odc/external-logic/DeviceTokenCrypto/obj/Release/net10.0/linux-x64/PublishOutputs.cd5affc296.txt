@@ -1,0 +1,4 @@
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/bin/Release/net10.0/linux-x64/publish/DeviceTokenCrypto.dll
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/bin/Release/net10.0/linux-x64/publish/DeviceTokenCrypto.deps.json
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/bin/Release/net10.0/linux-x64/publish/DeviceTokenCrypto.pdb
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/bin/Release/net10.0/linux-x64/publish/OutSystems.ExternalLibraries.SDK.dll

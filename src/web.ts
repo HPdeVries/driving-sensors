@@ -14,7 +14,7 @@ import type {
 } from './definitions';
 
 // Kept in sync with package.json by scripts/sync-version.mjs. Do not edit by hand.
-const PLUGIN_VERSION = '0.3.0';
+const PLUGIN_VERSION = '0.3.1';
 
 export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin {
   async checkPermissions(): Promise<PermissionStatus> {

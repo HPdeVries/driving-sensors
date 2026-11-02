@@ -1,0 +1,28 @@
+{
+  "version": 2,
+  "dgSpecHash": "ovkqKZ8eokU=",
+  "success": true,
+  "projectFilePath": "/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto.UnitTests/DeviceTokenCrypto.UnitTests.csproj",
+  "expectedPackageFiles": [
+    "/Users/hansdevries/.nuget/packages/microsoft.applicationinsights/2.23.0/microsoft.applicationinsights.2.23.0.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/microsoft.bcl.asyncinterfaces/6.0.0/microsoft.bcl.asyncinterfaces.6.0.0.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/microsoft.testing.extensions.telemetry/2.5.1/microsoft.testing.extensions.telemetry.2.5.1.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/microsoft.testing.extensions.trxreport.abstractions/2.5.1/microsoft.testing.extensions.trxreport.abstractions.2.5.1.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/microsoft.testing.platform/2.5.1/microsoft.testing.platform.2.5.1.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/microsoft.testing.platform.msbuild/2.5.1/microsoft.testing.platform.msbuild.2.5.1.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/microsoft.win32.registry/5.0.0/microsoft.win32.registry.5.0.0.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/outsystems.externallibraries.sdk/1.7.0/outsystems.externallibraries.sdk.1.7.0.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/system.security.accesscontrol/6.0.1/system.security.accesscontrol.6.0.1.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.analyzers/2.2.0/xunit.analyzers.2.2.0.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.runner.visualstudio/4.0.1/xunit.runner.visualstudio.4.0.1.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3/4.0.2/xunit.v3.4.0.2.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3.assert/4.0.2/xunit.v3.assert.4.0.2.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3.common/4.0.2/xunit.v3.common.4.0.2.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3.core.mtp-v2/4.0.2/xunit.v3.core.mtp-v2.4.0.2.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3.extensibility.core/4.0.2/xunit.v3.extensibility.core.4.0.2.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3.mtp-v2/4.0.2/xunit.v3.mtp-v2.4.0.2.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3.runner.common/4.0.2/xunit.v3.runner.common.4.0.2.nupkg.sha512",
+    "/Users/hansdevries/.nuget/packages/xunit.v3.runner.inproc.console/4.0.2/xunit.v3.runner.inproc.console.4.0.2.nupkg.sha512"
+  ],
+  "logs": []
+}

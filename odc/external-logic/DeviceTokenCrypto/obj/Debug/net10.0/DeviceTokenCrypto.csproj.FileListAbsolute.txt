@@ -1,0 +1,13 @@
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/bin/Debug/net10.0/DeviceTokenCrypto.deps.json
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/bin/Debug/net10.0/DeviceTokenCrypto.dll
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/bin/Debug/net10.0/DeviceTokenCrypto.pdb
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.csproj.AssemblyReference.cache
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.GeneratedMSBuildEditorConfig.editorconfig
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.AssemblyInfoInputs.cache
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.AssemblyInfo.cs
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.csproj.CoreCompileInputs.cache
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.sourcelink.json
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.dll
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/refint/DeviceTokenCrypto.dll
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/DeviceTokenCrypto.pdb
+/Users/hansdevries/Development/OutSystems/ODC-Plugin/Sensors/driving-sensors/odc/external-logic/DeviceTokenCrypto/obj/Debug/net10.0/ref/DeviceTokenCrypto.dll

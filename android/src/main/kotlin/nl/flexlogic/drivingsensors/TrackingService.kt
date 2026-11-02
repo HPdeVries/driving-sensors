@@ -88,25 +88,31 @@ class TrackingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val state = TrackingCoordinator.loadState(this)
         val recState = RecordingCoordinator.loadState(this)
+        val hbState = HeartbeatCoordinator.loadState(this)
         try {
-            startForegroundCompat(state?.config, recState?.config)
+            startForegroundCompat(state?.config, recState?.config, hbState != null)
         } catch (e: Exception) {
             Log.e(TAG, "cannot start foreground service", e)
             stopSelf()
             return START_NOT_STICKY
         }
-        if (state == null && recState == null) {
+        if (state == null && recState == null && hbState == null) {
             stopSelf()
             return START_NOT_STICKY
         }
         if (state != null) handler.post { beginSession(state) }
         if (recState != null) handler.post { beginRecording(recState) }
+        if (hbState != null) handler.post { beginHeartbeat(hbState) }
+        handler.post { startUploadTick() }
         return START_STICKY
     }
 
     override fun onDestroy() {
         if (TrackingCoordinator.service === this) TrackingCoordinator.service = null
         handler.post {
+            handler.removeCallbacks(heartbeatRunnable)
+            handler.removeCallbacks(uploadTickRunnable)
+            hbExecutor.shutdown()
             teardown()
             teardownRecording()
         }
@@ -171,26 +177,27 @@ class TrackingService : Service() {
 
     /** Stops the service when neither tracking nor recording is active, else refreshes the notification. */
     private fun stopOrRefresh() {
-        if (TrackingCoordinator.loadState(this) == null && RecordingCoordinator.loadState(this) == null) {
+        val hb = HeartbeatCoordinator.loadState(this) != null
+        if (TrackingCoordinator.loadState(this) == null && RecordingCoordinator.loadState(this) == null && !hb) {
             stopSelf()
         } else {
             try {
                 (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-                    .notify(NOTIFICATION_ID, buildNotification(TrackingCoordinator.loadState(this)?.config, RecordingCoordinator.loadState(this)?.config))
+                    .notify(NOTIFICATION_ID, buildNotification(TrackingCoordinator.loadState(this)?.config, RecordingCoordinator.loadState(this)?.config, hb))
             } catch (e: Exception) {
                 Log.w(TAG, "could not update notification", e)
             }
         }
     }
 
-    private fun startForegroundCompat(config: TrackingConfig?, recording: RecordingConfig?) {
+    private fun startForegroundCompat(config: TrackingConfig?, recording: RecordingConfig?, heartbeat: Boolean) {
         createChannel()
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         } else {
             0
         }
-        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(config, recording), type)
+        ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(config, recording, heartbeat), type)
     }
 
     private fun createChannel() {
@@ -206,8 +213,8 @@ class TrackingService : Service() {
         )
     }
 
-    private fun buildNotification(config: TrackingConfig?, recording: RecordingConfig?): Notification {
-        val (title, text) = ServiceNotificationText.compose(config, recording)
+    private fun buildNotification(config: TrackingConfig?, recording: RecordingConfig?, heartbeat: Boolean): Notification {
+        val (title, text) = ServiceNotificationText.compose(config, recording, heartbeat)
         val launch = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = launch?.let {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -270,6 +277,84 @@ class TrackingService : Service() {
         return true
     }
 
+    // ---- upload tick (every 60 s while the service runs) ----
+
+    private val uploadTickRunnable = object : Runnable {
+        override fun run() {
+            RecordingCoordinator.io.execute { UploadScheduler.triggerIfPending(this@TrackingService) }
+            handler.postDelayed(this, UPLOAD_TICK_MS)
+        }
+    }
+
+    private fun startUploadTick() {
+        handler.removeCallbacks(uploadTickRunnable)
+        handler.postDelayed(uploadTickRunnable, UPLOAD_TICK_MS)
+    }
+
+    // ---- heartbeat ----
+
+    private val hbExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+        Thread(r, "driving-sensors-heartbeat").apply { isDaemon = true }
+    }
+    private val hbBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private var hbIntervalSec = 0
+    private var hbRunning = false
+
+    private val heartbeatRunnable = object : Runnable {
+        override fun run() {
+            val state = HeartbeatCoordinator.loadState(this@TrackingService)
+            if (state == null) {
+                hbRunning = false
+                return
+            }
+            sendHeartbeat(state.intervalSec)
+            handler.postDelayed(this, state.intervalSec * 1000L)
+        }
+    }
+
+    /** Starts the timer (first beat immediately) or applies a changed interval. */
+    private fun beginHeartbeat(state: HeartbeatState) {
+        if (hbRunning && hbIntervalSec == state.intervalSec) return
+        val fresh = !hbRunning
+        hbRunning = true
+        hbIntervalSec = state.intervalSec
+        handler.removeCallbacks(heartbeatRunnable)
+        if (fresh) {
+            handler.post(heartbeatRunnable)
+        } else {
+            handler.postDelayed(heartbeatRunnable, state.intervalSec * 1000L)
+        }
+    }
+
+    /** Heartbeats are never queued: a beat is skipped while the previous one is still being sent. */
+    private fun sendHeartbeat(intervalSec: Int) {
+        if (!hbBusy.compareAndSet(false, true)) return
+        val seq = HeartbeatCoordinator.nextSeq(this)
+        try {
+            hbExecutor.execute {
+                try {
+                    UploadRuntime.heartbeat(this).beat(seq, intervalSec)
+                } catch (e: Exception) {
+                    Log.w(TAG, "heartbeat failed", e)
+                } finally {
+                    hbBusy.set(false)
+                }
+            }
+        } catch (e: java.util.concurrent.RejectedExecutionException) {
+            hbBusy.set(false)
+        }
+    }
+
+    /** Called by [HeartbeatCoordinator] after the persisted running flag was cleared. */
+    fun requestHeartbeatStop() {
+        handler.post {
+            handler.removeCallbacks(heartbeatRunnable)
+            hbRunning = false
+            hbIntervalSec = 0
+            stopOrRefresh()
+        }
+    }
+
     // ---- raw recording ----
 
     private fun beginRecording(state: RecordingState) {
@@ -306,6 +391,7 @@ class TrackingService : Service() {
             maxBytes = config.maxStorageMb.toLong() * 1024 * 1024,
             startSeq = nextSeq,
             onChunkOpened = { seq -> RecordingCoordinator.updateNextSeq(this, seq + 1) },
+            onChunkFinalized = { UploadScheduler.trigger(this) },
             onStorageFull = { RecordingCoordinator.end(this, "STORAGE_FULL") {} },
             onError = { e ->
                 Log.e(TAG, "recording writer failed", e)
@@ -423,6 +509,7 @@ class TrackingService : Service() {
         private const val CHANNEL_ID = "driving_sensors_tracking_v2"
         private const val NOTIFICATION_ID = 7421
         private const val TICK_MS = 10_000L
+        private const val UPLOAD_TICK_MS = 60_000L
         private const val IDLE_INTERVAL_MS = 5000L
         private const val LOCATION_TOLERANCE_MS = 100L
     }

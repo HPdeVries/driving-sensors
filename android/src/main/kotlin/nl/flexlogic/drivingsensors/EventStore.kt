@@ -37,6 +37,14 @@ class EventStore private constructor(context: Context) :
         }
     }
 
+    /** Runs [work] on the database thread and blocks until done. Never call from the database thread. */
+    fun <T> sync(work: EventStore.() -> T): T =
+        try {
+            executor.submit(java.util.concurrent.Callable { work() }).get()
+        } catch (e: java.util.concurrent.ExecutionException) {
+            throw e.cause ?: e
+        }
+
     fun insert(record: EventRecord) {
         async({ insertNow(record) }) { }
     }

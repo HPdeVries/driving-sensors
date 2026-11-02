@@ -37,6 +37,7 @@ object RecordingFiles {
     const val PART_SUFFIX = ".csv.part"
     const val GZ_SUFFIX = ".csv.gz"
     const val JSON_SUFFIX = ".json"
+    const val REJECTED_SUFFIX = ".rejected.json"
 
     fun chunkId(recordingId: String, seq: Int): String = recordingId + "-" + seq.toString().padStart(6, '0')
 
@@ -55,6 +56,44 @@ object RecordingFiles {
     fun partFile(dir: File, chunkId: String) = File(dir, chunkId + PART_SUFFIX)
     fun gzFile(dir: File, chunkId: String) = File(dir, chunkId + GZ_SUFFIX)
     fun jsonFile(dir: File, chunkId: String) = File(dir, chunkId + JSON_SUFFIX)
+
+    fun rejectedFile(dir: File, chunkId: String) = File(dir, chunkId + REJECTED_SUFFIX)
+
+    /** True for the metadata file of a finished chunk that is still deliverable. */
+    fun isPendingMetaName(name: String) = name.endsWith(JSON_SUFFIX) && !name.endsWith(REJECTED_SUFFIX)
+
+    /** A finished, deliverable chunk: its metadata JSON text plus ordering keys. */
+    class PendingChunk(val chunkId: String, val metaJson: String, val startTs: Long, val seq: Int)
+
+    /** Finished chunks that are not rejected, oldest first. Unreadable metadata is skipped. */
+    fun listPending(dir: File): List<PendingChunk> {
+        val out = ArrayList<PendingChunk>()
+        dir.listFiles()?.filter { it.isFile && isPendingMetaName(it.name) }?.forEach { f ->
+            try {
+                val text = f.readText(Charsets.UTF_8)
+                val o = org.json.JSONObject(text)
+                out.add(PendingChunk(f.name.removeSuffix(JSON_SUFFIX), text, o.optLong("startTs"), o.optInt("seq")))
+            } catch (e: Exception) {
+                // skip unreadable metadata
+            }
+        }
+        out.sortWith(compareBy({ it.startTs }, { it.seq }))
+        return out
+    }
+
+    fun countPending(dir: File): Int = dir.listFiles()?.count { it.isFile && isPendingMetaName(it.name) } ?: 0
+
+    fun countRejected(dir: File): Int = dir.listFiles()?.count { it.isFile && it.name.endsWith(REJECTED_SUFFIX) } ?: 0
+
+    /** Marks a chunk as refused by the server: `.json` becomes `.rejected.json`, the `.gz` stays. */
+    fun reject(dir: File, chunkId: String): Boolean = jsonFile(dir, chunkId).renameTo(rejectedFile(dir, chunkId))
+
+    /** Deletes a chunk (metadata first, so it is no longer listed), whether pending or rejected. */
+    fun delete(dir: File, chunkId: String) {
+        jsonFile(dir, chunkId).delete()
+        rejectedFile(dir, chunkId).delete()
+        gzFile(dir, chunkId).delete()
+    }
 
     fun totalBytes(dir: File): Long = dir.listFiles()?.sumOf { if (it.isFile) it.length() else 0L } ?: 0L
 

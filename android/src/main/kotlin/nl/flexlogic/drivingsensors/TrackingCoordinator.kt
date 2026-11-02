@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import java.util.UUID
 
@@ -44,8 +46,9 @@ object TrackingCoordinator {
 
     fun store(context: Context): EventStore = EventStore.get(context)
 
-    fun loadState(context: Context): TrackingState? {
-        val p = prefs(context)
+    fun loadState(context: Context): TrackingState? = parseState(prefs(context))
+
+    internal fun parseState(p: SharedPreferences): TrackingState? {
         if (!p.getBoolean("active", false)) return null
         val sessionId = p.getString("sessionId", null) ?: return null
         val d = TrackingConfig()
@@ -104,6 +107,26 @@ object TrackingCoordinator {
             svc = service
         }
         if (svc != null) svc.requestStop(onDone) else store(context).whenIdle(onDone)
+    }
+
+    /**
+     * Start from a possibly-background context (boot, plugin load). Never throws: when Android
+     * refuses (ForegroundServiceStartNotAllowedException, API 31+) the upload worker is scheduled
+     * and the start is retried on the next plugin load.
+     */
+    fun startServiceSafely(context: Context, origin: String): Boolean {
+        return try {
+            startService(context)
+            true
+        } catch (e: Exception) {
+            val notAllowed = ResumeDecision.isFgsStartNotAllowed(e, Build.VERSION.SDK_INT)
+            Log.w("DrivingSensors", "cannot start service from $origin (notAllowed=$notAllowed); scheduling upload instead", e)
+            RecordingCoordinator.io.execute {
+                UploadScheduler.ensurePeriodic(context)
+                UploadScheduler.triggerIfPending(context)
+            }
+            false
+        }
     }
 
     fun startService(context: Context) {

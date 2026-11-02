@@ -60,7 +60,7 @@ class DrivingSensorsPlugin : Plugin() {
                 isGranted(Manifest.permission.ACCESS_FINE_LOCATION)
             ) {
                 // The service finalizes leftover chunks itself before it starts writing.
-                TrackingCoordinator.startService(context)
+                TrackingCoordinator.startServiceSafely(context, "plugin load")
             } else if (recording == null) {
                 val dir = RecordingCoordinator.dir(context)
                 RecordingCoordinator.io.execute { RecordingFiles.finalizeLeftovers(dir) }

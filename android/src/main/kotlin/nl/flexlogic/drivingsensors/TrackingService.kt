@@ -120,6 +120,12 @@ class TrackingService : Service() {
         super.onDestroy()
     }
 
+    /** API 35: the FGS time limit was hit. Stop without touching persisted state; resumes on next start. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        Log.w(TAG, "foreground service timeout (startId=$startId, type=$fgsType); stopping, state kept")
+        stopSelf()
+    }
+
     /** Called by the coordinator after the persisted active flag was cleared. */
     fun requestStop(onDone: () -> Unit) {
         handler.post {
@@ -241,10 +247,10 @@ class TrackingService : Service() {
         TrackingCoordinator.inTrip = false
         TrackingCoordinator.lastLocation = null
         if (!requestLocation(s, highAccuracy = false)) {
-            Log.e(TAG, "location permission missing, stopping")
+            // Persisted state stays (idle) and resumes once permission is back and the service starts again.
+            Log.w(TAG, "location permission missing, tracking stays persisted but idle")
             session = null
             TrackingCoordinator.sessionRunning = false
-            ContextCompat.getMainExecutor(this).execute { stopSelf() }
             return
         }
         TrackingCoordinator.sessionRunning = true
@@ -362,9 +368,8 @@ class TrackingService : Service() {
         teardownRecording()
         recorderId = state.recordingId // claim, so a second start command does not start twice
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            Log.e(TAG, "location permission missing, stopping recording")
+            Log.w(TAG, "location permission missing, recording stays persisted but idle")
             recorderId = null
-            RecordingCoordinator.end(this, "PERMISSION_LOST") {}
             return
         }
         val dir = RecordingCoordinator.dir(this)
@@ -405,7 +410,7 @@ class TrackingService : Service() {
             r.stop {}
             w.stop {}
             recorderId = null
-            RecordingCoordinator.end(this, "PERMISSION_LOST") {}
+            Log.w(TAG, "recorder could not start (permission?), recording stays persisted but idle")
             return
         }
         writer = w

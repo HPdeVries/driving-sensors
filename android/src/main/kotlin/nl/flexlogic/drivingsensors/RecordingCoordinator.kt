@@ -34,8 +34,9 @@ object RecordingCoordinator {
 
     fun dir(context: Context): File = File(context.applicationContext.filesDir, "driving_sensors/recordings")
 
-    fun loadState(context: Context): RecordingState? {
-        val p = prefs(context)
+    fun loadState(context: Context): RecordingState? = parseState(prefs(context))
+
+    internal fun parseState(p: SharedPreferences): RecordingState? {
         if (!p.getBoolean("recording", false)) return null
         val id = p.getString("recordingId", null) ?: return null
         val d = RecordingConfig()

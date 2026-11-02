@@ -92,6 +92,149 @@ The plugin omits readings it does not have; ODC cannot tell an omitted value fro
 
 Caveat: JSON Serialize emits every attribute, with ODC defaults (0 / empty) for unset ones. A `0` threshold would be passed to the plugin. Always fill all attributes from a settings source (app Site Properties or a constant record) before serializing. Empty `notificationTitle` / `notificationText` should be replaced by the defaults above first (**unverified** how the native side treats empty strings). Alternative: build the JSON by hand with `Concat` and omit attributes you do not want to override.
 
+## v0.2.0: raw sensor recording structures
+
+All **public**, in the mobile library `DrivingSensorsPlugin`. Attribute names equal the JSON keys. Each JSON example below is realistic and meant for **"Create structure from JSON"** in Studio (decimals with a non-zero fraction infer Decimal, timestamps above 2^31 infer Long Integer). After pasting, check the inferred types against the tables (e.g. a count that happens to be 0 would infer Integer anyway; a rate such as `100.0` could infer Integer, which is why the examples use fractions).
+
+### RecordingSensorAvailability (nested `available`)
+
+| Attribute | ODC type |
+|---|---|
+| acc, gyr, mag, bar, loc | Boolean |
+
+```json
+{ "acc": true, "gyr": true, "mag": true, "bar": true, "loc": true }
+```
+
+### RecordingSensorRates (nested `measuredHz`)
+
+Actual samples/s per sensor over the last ~5 s. Omitted when not recording, so it deserializes to all 0.
+
+| Attribute | ODC type |
+|---|---|
+| acc, gyr, mag, bar, loc | Decimal |
+
+```json
+{ "acc": 99.4, "gyr": 99.8, "mag": 49.6, "bar": 9.8, "loc": 0.98 }
+```
+
+### RecordingSensorCounts (nested `counts` of a chunk)
+
+Samples per sensor in one chunk. (The plugin type is one `RecordingSensorStats` with numbers; ODC needs two structures because one is Decimal and the other Integer.)
+
+| Attribute | ODC type |
+|---|---|
+| acc, gyr, mag, bar, loc | Integer |
+
+```json
+{ "acc": 6012, "gyr": 6003, "mag": 3001, "bar": 598, "loc": 60 }
+```
+
+### RecordingStatus (`StatusJson` of GetRecordingStatus)
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| recording | Boolean | |
+| recordingId | Text | omitted when never started |
+| startedAt | Long Integer | epoch ms, 0 = absent |
+| chunksPending | Integer | finished chunks waiting to be fetched |
+| bytesPending | Long Integer | bytes on disk (finished + current); Long Integer attribute is fine inside JSON |
+| available | RecordingSensorAvailability | |
+| measuredHz | RecordingSensorRates | all 0 when not recording |
+| stopReason | Text | `STORAGE_FULL`, `PERMISSION_LOST`, `ERROR`; empty = none |
+
+```json
+{
+  "recording": true,
+  "recordingId": "3f0c2c36-6f4e-4a4f-9c53-1d2a8d6a9b11",
+  "startedAt": 1793367101003,
+  "chunksPending": 3,
+  "bytesPending": 712345,
+  "available": { "acc": true, "gyr": true, "mag": true, "bar": true, "loc": true },
+  "measuredHz": { "acc": 99.4, "gyr": 99.8, "mag": 49.6, "bar": 9.8, "loc": 0.98 },
+  "stopReason": "STORAGE_FULL"
+}
+```
+
+(`stopReason` is only present after an automatic stop.) In the status screen compare `measuredHz` with the targets 100 / 100 / 50 / 10 / 1.
+
+### RecordingChunkInfo (one element of `ChunksJson`, a JSON **array**)
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| chunkId | Text | `<recordingId>-<seq 6 digits>` |
+| recordingId | Text | |
+| seq | Integer | |
+| startTs, endTs | Long Integer | epoch ms of first/last sample |
+| bytes | Integer | size of the gzip payload (a few hundred KB) |
+| counts | RecordingSensorCounts | |
+
+```json
+{
+  "chunkId": "3f0c2c36-6f4e-4a4f-9c53-1d2a8d6a9b11-000002",
+  "recordingId": "3f0c2c36-6f4e-4a4f-9c53-1d2a8d6a9b11",
+  "seq": 2,
+  "startTs": 1793367221003,
+  "endTs": 1793367280998,
+  "bytes": 235186,
+  "counts": { "acc": 6012, "gyr": 6003, "mag": 3001, "bar": 598, "loc": 60 }
+}
+```
+
+`ListRecordingChunks.Chunks` is a **List of RecordingChunkInfo**: JSON Deserialize `ChunksJson` with that data type.
+
+### RecordingChunkMeta (`MetaJson` of GetRecordingChunk)
+
+The chunk object **without** `data` (the base64 goes in the separate `DataBase64` output, so the big string is never deserialized). RecordingChunkInfo fields plus:
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| chunkId, recordingId, seq, startTs, endTs, bytes, counts | as RecordingChunkInfo | repeat them (ODC has no structure inheritance) |
+| format | Text | always `csv-v1` |
+| encoding | Text | always `gzip+base64` |
+| platform | Text | `android` / `ios` |
+| deviceModel | Text | |
+| osVersion | Text | |
+| pluginVersion | Text | |
+| sensorInfoJson | Text | the plugin's `sensorInfo` map as a **JSON string** |
+
+Why `sensorInfoJson`: `sensorInfo` is a free-form map (`{"acc":"Bosch BMI160 (raw)", ...}`) whose keys depend on the device; ODC structures need fixed attributes. The GetRecordingChunk client action therefore replaces `sensorInfo` with `sensorInfoJson` (a stringified copy). Store it as text and parse it later in the forwarding step if needed.
+
+```json
+{
+  "chunkId": "3f0c2c36-6f4e-4a4f-9c53-1d2a8d6a9b11-000002",
+  "recordingId": "3f0c2c36-6f4e-4a4f-9c53-1d2a8d6a9b11",
+  "seq": 2,
+  "startTs": 1793367221003,
+  "endTs": 1793367280998,
+  "bytes": 235186,
+  "counts": { "acc": 6012, "gyr": 6003, "mag": 3001, "bar": 598, "loc": 60 },
+  "format": "csv-v1",
+  "encoding": "gzip+base64",
+  "platform": "android",
+  "deviceModel": "Google Pixel 8",
+  "osVersion": "15",
+  "pluginVersion": "0.2.0",
+  "sensorInfoJson": "{\"acc\":\"BMI3xx Accelerometer (Bosch), raw\",\"gyr\":\"BMI3xx Gyroscope (Bosch), calibrated\"}"
+}
+```
+
+### RecordingOptions (serialize into `OptionsJson` of StartRecording; usually just pass `""`)
+
+| Attribute | ODC type | Default |
+|---|---|---|
+| accelHz, gyroHz, magHz, baroHz | Integer | 100 / 100 / 50 / 10 |
+| locationIntervalMs | Integer | 1000 |
+| chunkSeconds | Integer | 60 |
+| maxStorageMb | Integer | 500 |
+| notificationTitle, notificationText | Text | see SPEC.md |
+
+Same caveat as TrackingOptions: JSON Serialize emits all attributes with 0 / empty defaults. Pass `""` unless you build the JSON by hand with only the keys you override.
+
+## Server entity for uploaded chunks (in the consuming app)
+
+See `STUDIO-BUILD-GUIDE.md`, section "v0.2.0: raw sensor recording": entity `RecordingChunk`, server action `StoreRecordingChunk`, client action `UploadRecordingChunks`. CSV format and size estimates: `RECORDING-FORMAT.md`.
+
 ## Local Storage entity (in the consuming app)
 
 `DrivingEvent` (Local Storage entity, Is Public optional):

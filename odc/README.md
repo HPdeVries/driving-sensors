@@ -9,12 +9,14 @@ Artifacts in this folder:
 | `buildAction.android-fallback.json` | Only if the plugin's Android manifest does not carry the service (see below). Service class name is a placeholder: match it to the Android implementation |
 | `client-actions/*.js` | One JS node body per client action |
 | `structures.md` | Structures, Local Storage entity, sync flow |
+| `RECORDING-FORMAT.md` | v0.2.0 raw recording: CSV format csv-v1, chunk sizes, forwarding notes |
+| `tools/estimate-chunk-size.mjs` | Generates a synthetic 60-s chunk and prints raw/gzip/base64 sizes |
 
 Requires **MABS 12+ with the Capacitor framework**. MABS 12 uses Capacitor 8.0.0 according to an OutSystems forum answer (community, see Sources), which matches this plugin (Capacitor 8).
 
 ## Step by step
 
-1. **Tag and publish the plugin**: commit `dist/` (see finding 4), tag `v0.1.2`, push to https://github.com/HPdeVries/driving-sensors. The repo must be public (MABS has to fetch it; private repos are **unverified**).
+1. **Tag and publish the plugin**: commit `dist/` (see finding 4), tag `v0.2.0`, push to https://github.com/HPdeVries/driving-sensors. The repo must be public (MABS has to fetch it; private repos are **unverified**).
 2. In ODC Studio create a **Mobile library** `DrivingSensors`.
 3. **Extensibility Configurations** tab of the library: paste `extensibility-configuration.json`. Library configs use the *library (plugin)* schema; app-level values override library values for permissions.
 4. **Resources**: add `buildAction.json`, set *Deploy Action* = **Deploy to Target Directory**. The name must match `$resources.buildAction.json` in the config.
@@ -38,7 +40,7 @@ Confirmed in the library schema page: top-level `pluginConfigurations` and `buil
 - `buildConfigurations.resources`: arrays `android`/`ios` of `{source, target}` (copied before `cap sync`).
 - `pluginConfigurations.permissions.ios`: object keyed by Info.plist usage key with `{ "description": "<text or $extensibilitySettings.X>" }`. An entry without description needs a value from the app or another plugin, otherwise the build fails. `permissions.android`: array of permission strings. App-level values take precedence.
 - `pluginConfigurations.capacitor.configurations`: per-plugin-class Capacitor plugin config (not needed here).
-- **GitHub `url#tag` as `npm` value: NOT documented.** The official pages show only npm specs. A community article (MABS 12 migration) shows a Git URL with a `#tag` suffix in the legacy Cordova `plugin.url` and says `npm` is the preferred key "even when the value is still a Git URL". Treat `https://github.com/HPdeVries/driving-sensors#v0.1.2` in `capacitor.source.npm` as **unverified**; the fallback is publishing to npm and using `"driving-sensors@0.1.2"`.
+- **GitHub `url#tag` as `npm` value: NOT documented.** The official pages show only npm specs. A community article (MABS 12 migration) shows a Git URL with a `#tag` suffix in the legacy Cordova `plugin.url` and says `npm` is the preferred key "even when the value is still a Git URL". Treat `https://github.com/HPdeVries/driving-sensors#v0.2.0` in `capacitor.source.npm` as **unverified**; the fallback is publishing to npm and using `"driving-sensors@0.2.0"`.
 - **Capacitor-only library: allowed.** The schema marks `cordova` as required only "if `capacitor` is missing" and vice versa, so either alone is valid; no `cordova` section is needed. **What a Cordova-framework build does with a Capacitor-only library is not documented** (the MABS support page only says to ensure the app and its plugins are compatible with the chosen framework to avoid package-creation failures). Expect the plugin to be absent or the build to fail; the JS actions return `PLUGIN_NOT_AVAILABLE` if the plugin is simply missing. **Unverified.**
 - MABS 12 requires the universal schema; the legacy Cordova-based schema is not supported (error for Capacitor apps).
 
@@ -55,7 +57,7 @@ The official "Integrate Capacitor plugin into a mobile app" page uses `window.Ca
 
 ### 4. GitHub `url#tag` sources: commit `dist/` or `prepare`?
 
-Not documented by OutSystems (no page found describing how MABS fetches the package or whether install scripts run). From general npm behaviour: installing a git dependency runs `npm pack`-style preparation including the `prepare` script, but only if devDependencies can be installed and scripts are not disabled (`--ignore-scripts`). Whether MABS does this is **unverified**. **Recommendation: commit `dist/` on the release tag** (works regardless of MABS install flags and the plugin's `main`/`module` point into `dist/`; the native `android/`, `ios/Sources`, `Package.swift` are what MABS actually builds). The root `.gitignore` ignores `dist/`, so release with `git add -f dist` on a release commit that is tagged (or remove `dist/` from `.gitignore`). Optionally also add `"prepare": "npm run build"` as a safety net, but note `build` runs docgen and rollup that need devDependencies. If MABS cannot fetch the Git source at all, publish to npm and change `npm` to `driving-sensors@0.1.2`.
+Not documented by OutSystems (no page found describing how MABS fetches the package or whether install scripts run). From general npm behaviour: installing a git dependency runs `npm pack`-style preparation including the `prepare` script, but only if devDependencies can be installed and scripts are not disabled (`--ignore-scripts`). Whether MABS does this is **unverified**. **Recommendation: commit `dist/` on the release tag** (works regardless of MABS install flags and the plugin's `main`/`module` point into `dist/`; the native `android/`, `ios/Sources`, `Package.swift` are what MABS actually builds). The root `.gitignore` ignores `dist/`, so release with `git add -f dist` on a release commit that is tagged (or remove `dist/` from `.gitignore`). Optionally also add `"prepare": "npm run build"` as a safety net, but note `build` runs docgen and rollup that need devDependencies. If MABS cannot fetch the Git source at all, publish to npm and change `npm` to `driving-sensors@0.2.0`.
 
 ## Sources
 

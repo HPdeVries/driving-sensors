@@ -210,16 +210,120 @@ $('btnClear').onclick = () => {
   }
 };
 
+// ---- Recording (v0.2.0) ----
+const REC_TARGET = { acc: 100, gyr: 100, mag: 50, bar: 10, loc: 1 };
+const SENSORS = Object.keys(REC_TARGET);
+const mb = (b) => ((b || 0) / 1048576).toFixed(2) + ' MB';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+async function refreshRecording() {
+  try {
+    const s = await DrivingSensors.getRecordingStatus();
+    $('recStatus').textContent =
+      (s.recording ? 'RECORDING ' + (s.recordingId || '') : 'not recording') +
+      ' | chunksPending: ' + s.chunksPending + ' | bytesPending: ' + mb(s.bytesPending) +
+      (s.stopReason ? ' | stopReason: ' + s.stopReason : '') +
+      '  @' + new Date().toLocaleTimeString();
+    $('recRates').innerHTML = SENSORS.map((k) => {
+      const hz = s.measuredHz ? s.measuredHz[k] : undefined;
+      const bad = s.recording && hz != null && hz < REC_TARGET[k] * 0.8;
+      return `<tr class="${bad ? 'harsh' : ''}"><td>${k}</td><td>${hz != null ? hz.toFixed(1) : '-'}</td><td>${REC_TARGET[k]}</td><td>${s.available ? s.available[k] : '?'}</td></tr>`;
+    }).join('');
+  } catch (e) {
+    $('recStatus').textContent = 'ERROR ' + (e.code || '') + ' ' + e.message;
+  }
+}
+
+async function listChunks() {
+  const r = await call('listRecordingChunks', () => DrivingSensors.listRecordingChunks({ limit: 100 }));
+  if (!r) return;
+  $('recChunks').innerHTML = r.chunks
+    .map((c) => {
+      const n = c.counts || {};
+      return `<tr><td>${c.seq}</td><td>${fmtTime(c.startTs)}-${fmtTime(c.endTs)}</td><td>${(c.bytes / 1024).toFixed(0)}</td><td>${SENSORS.map((k) => n[k] ?? 0).join('/')}</td>` +
+        `<td><button data-dl="${esc(c.chunkId)}">Download</button> <button data-ack="${esc(c.chunkId)}">Ack</button></td></tr>`;
+    })
+    .join('');
+}
+
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function gunzipToText(bytes) {
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+
+async function downloadChunk(chunkId) {
+  $('recCsv').textContent = 'fetching ' + chunkId + '...';
+  const c = await call('getRecordingChunk', () => DrivingSensors.getRecordingChunk({ chunkId }));
+  if (!c) {
+    $('recCsv').textContent = 'error, see log';
+    return;
+  }
+  try {
+    const gz = b64ToBytes(c.data);
+    const csv = await gunzipToText(gz);
+    const lines = csv.split('\n');
+    if (lines[lines.length - 1] === '') lines.pop();
+    const counts = {};
+    for (let i = 1; i < lines.length; i++) {
+      const s = lines[i].split(',', 2)[1];
+      counts[s] = (counts[s] || 0) + 1;
+    }
+    const meta = { ...c, data: undefined };
+    $('recCsv').textContent =
+      `gzip ${gz.length} B (reported ${c.bytes}), csv ${csv.length} chars, ${lines.length - 1} samples\n` +
+      'per-sensor counts (csv): ' + JSON.stringify(counts) + '\n' +
+      'per-sensor counts (meta): ' + JSON.stringify(c.counts) + '\n' +
+      'meta: ' + JSON.stringify(meta) + '\n\n' +
+      lines.slice(0, 20).join('\n');
+  } catch (e) {
+    $('recCsv').textContent = 'decode ERROR ' + e.message;
+    log('chunk decode ERROR', { message: e.message });
+  }
+}
+
+$('btnRecStart').onclick = async () => {
+  await call('startRecording', () => DrivingSensors.startRecording());
+  refreshRecording();
+};
+$('btnRecStop').onclick = async () => {
+  await call('stopRecording', () => DrivingSensors.stopRecording());
+  refreshRecording();
+  listChunks();
+};
+$('btnRecList').onclick = listChunks;
+$('recChunks').onclick = async (ev) => {
+  const t = ev.target;
+  if (!(t instanceof HTMLElement)) return;
+  if (t.dataset.dl) downloadChunk(t.dataset.dl);
+  else if (t.dataset.ack) {
+    await call('ackRecordingChunk', () => DrivingSensors.ackRecordingChunk({ chunkId: t.dataset.ack }));
+    listChunks();
+    refreshRecording();
+  }
+};
+
 let timer;
+let recTimer;
 function startTimer() {
   stopTimer();
   showPluginVersion();
   refreshStatus();
   timer = setInterval(refreshStatus, 5000);
+  refreshRecording();
+  recTimer = setInterval(refreshRecording, 2000);
 }
 function stopTimer() {
   if (timer) clearInterval(timer);
   timer = undefined;
+  if (recTimer) clearInterval(recTimer);
+  recTimer = undefined;
 }
 
 App.addListener('appStateChange', ({ isActive }) => {

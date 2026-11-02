@@ -309,8 +309,87 @@ $('recChunks').onclick = async (ev) => {
   }
 };
 
+// ---- Upload + heartbeat (v0.3.0) ----
+const UP_KEY = 'drivingSensors.upload.v1'; // non-secret fields only; the token is never saved by the app
+try {
+  const saved = JSON.parse(localStorage.getItem(UP_KEY) || '{}');
+  if (saved.endpoint) $('upEndpoint').value = saved.endpoint;
+  if (saved.deviceId) $('upDeviceId').value = saved.deviceId;
+} catch {
+  /* ignore */
+}
+const ago = (ms) => (ms ? Math.round((Date.now() - ms) / 1000) + ' s ago' : '-');
+
+async function refreshUpload() {
+  try {
+    const s = await DrivingSensors.getUploadStatus();
+    $('upStatus').textContent =
+      `${s.configured ? 'configured' : 'NOT configured'} | state ${s.state}` +
+      ` | pending: ${s.pendingChunks} chunks, ${s.pendingEvents} events` +
+      ` | rejected ${s.rejectedChunks} | uploaded ${s.uploadedChunks} chunks, ${s.uploadedEvents} events` +
+      ` | last ok ${ago(s.lastSuccessAt)}` +
+      (s.lastError ? ` | last error "${s.lastError}" (HTTP ${s.lastHttpStatus ?? '-'}) ${ago(s.lastErrorAt)}` : '') +
+      (s.nextAttemptAt ? ` | next attempt in ${Math.max(0, Math.round((s.nextAttemptAt - Date.now()) / 1000))} s` : '');
+    $('upRaw').textContent = JSON.stringify(s, null, 1);
+  } catch (e) {
+    $('upStatus').textContent = 'ERROR ' + (e.code || '') + ' ' + e.message;
+  }
+}
+async function refreshHeartbeat() {
+  try {
+    const s = await DrivingSensors.getHeartbeatStatus();
+    $('hbStatus').textContent =
+      (s.running ? `RUNNING every ${s.intervalSec} s` : 'stopped') +
+      ` | sent ${s.sent}, ok ${s.succeeded} | last sent ${ago(s.lastSentAt)}, last ok ${ago(s.lastSuccessAt)}` +
+      (s.lastError ? ` | error "${s.lastError}" (HTTP ${s.lastHttpStatus ?? '-'})` : '');
+  } catch (e) {
+    $('hbStatus').textContent = 'ERROR ' + (e.code || '') + ' ' + e.message;
+  }
+}
+
+$('btnUpConfigure').onclick = async () => {
+  const endpoint = $('upEndpoint').value.trim();
+  const deviceId = $('upDeviceId').value.trim();
+  const opts = {
+    endpointBaseUrl: endpoint,
+    deviceId,
+    token: $('upToken').value,
+    uploadRecordings: $('upRec').checked,
+    uploadEvents: $('upEvents').checked,
+    wifiOnly: $('upWifi').checked,
+  };
+  const n = Number($('upBatch').value);
+  if (n > 0) opts.eventBatchSize = n;
+  await call('configureUpload', () => DrivingSensors.configureUpload(opts));
+  try {
+    localStorage.setItem(UP_KEY, JSON.stringify({ endpoint, deviceId }));
+  } catch {
+    /* ignore */
+  }
+  $('upToken').value = '';
+  refreshUpload();
+};
+$('btnUpClear').onclick = async () => {
+  await call('clearUpload', () => DrivingSensors.clearUpload());
+  refreshUpload();
+};
+$('btnUpNow').onclick = async () => {
+  await call('uploadNow', () => DrivingSensors.uploadNow());
+  refreshUpload();
+};
+$('btnHbStart').onclick = async () => {
+  const n = Number($('hbInterval').value);
+  await call('startHeartbeat', () => DrivingSensors.startHeartbeat(n > 0 ? { intervalSec: n } : undefined));
+  refreshHeartbeat();
+};
+$('btnHbStop').onclick = async () => {
+  await call('stopHeartbeat', () => DrivingSensors.stopHeartbeat());
+  refreshHeartbeat();
+};
+
 let timer;
 let recTimer;
+let upTimer;
 function startTimer() {
   stopTimer();
   showPluginVersion();
@@ -318,12 +397,17 @@ function startTimer() {
   timer = setInterval(refreshStatus, 5000);
   refreshRecording();
   recTimer = setInterval(refreshRecording, 2000);
+  const refreshUp = () => { refreshUpload(); refreshHeartbeat(); };
+  refreshUp();
+  upTimer = setInterval(refreshUp, 2000);
 }
 function stopTimer() {
   if (timer) clearInterval(timer);
   timer = undefined;
   if (recTimer) clearInterval(recTimer);
   recTimer = undefined;
+  if (upTimer) clearInterval(upTimer);
+  upTimer = undefined;
 }
 
 App.addListener('appStateChange', ({ isActive }) => {

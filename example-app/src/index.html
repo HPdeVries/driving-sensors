@@ -100,6 +100,32 @@
       <pre id="recCsv">-</pre>
     </section>
 
+    <section id="upSection">
+      <h2>Upload (native, v0.3.0)</h2>
+      <div class="grid">
+        <label style="grid-column: 1 / 3">endpointBaseUrl (https)<input id="upEndpoint" type="url" placeholder="https://host/DriveMe/rest/Telemetry" autocapitalize="off" /></label>
+        <label>deviceId<input id="upDeviceId" type="text" autocapitalize="off" /></label>
+        <label>token (not saved here)<input id="upToken" type="password" autocomplete="off" autocapitalize="off" /></label>
+        <label>eventBatchSize (0 = default)<input id="upBatch" type="number" value="0" /></label>
+      </div>
+      <label><input id="upRec" type="checkbox" checked /> uploadRecordings</label>
+      <label><input id="upEvents" type="checkbox" checked /> uploadEvents</label>
+      <label><input id="upWifi" type="checkbox" /> wifiOnly</label><br />
+      <button id="btnUpConfigure" class="primary">Configure</button>
+      <button id="btnUpClear" class="danger">Clear</button>
+      <button id="btnUpNow">Upload now</button>
+      <div id="upStatus">-</div>
+      <pre id="upRaw">-</pre>
+    </section>
+
+    <section id="hbSection">
+      <h2>Heartbeat (v0.3.0)</h2>
+      <label>intervalSec (10..3600, default 30) <input id="hbInterval" type="number" value="30" style="width: 5em" /></label>
+      <button id="btnHbStart" class="primary">Start heartbeat</button>
+      <button id="btnHbStop" class="danger">Stop</button>
+      <div id="hbStatus">-</div>
+    </section>
+
     <section>
       <h2>Log</h2>
       <pre id="log"></pre>

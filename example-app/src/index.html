@@ -82,6 +82,24 @@
       </table>
     </section>
 
+    <section id="recSection">
+      <h2>Recording (raw sensors, v0.2.0)</h2>
+      <button id="btnRecStart" class="primary">Start recording</button>
+      <button id="btnRecStop" class="danger">Stop recording</button>
+      <button id="btnRecList">List chunks</button>
+      <div id="recStatus">-</div>
+      <table>
+        <thead><tr><th>sensor</th><th>measured Hz</th><th>target</th><th>available</th></tr></thead>
+        <tbody id="recRates"></tbody>
+      </table>
+      <h2>Chunks</h2>
+      <table>
+        <thead><tr><th>seq</th><th>time</th><th>KB</th><th>acc/gyr/mag/bar/loc</th><th></th></tr></thead>
+        <tbody id="recChunks"></tbody>
+      </table>
+      <pre id="recCsv">-</pre>
+    </section>
+
     <section>
       <h2>Log</h2>
       <pre id="log"></pre>

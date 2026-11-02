@@ -2,7 +2,7 @@
   "buildConfigurations": {
     "capacitor": {
       "source": {
-        "npm": "https://github.com/HPdeVries/driving-sensors#v0.1.2"
+        "npm": "https://github.com/HPdeVries/driving-sensors#v0.2.0"
       }
     },
     "buildAction": {

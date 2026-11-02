@@ -212,3 +212,26 @@ A 60-s chunk is about 230 KB gzip, about 310 KB as base64 (measured, see `odc/RE
 ### Later: forward to the external API
 
 When the API is known, add an ODC **Timer** `ForwardRecordingChunks`: select `RecordingChunk` rows with `SentOn = NullDate()` ordered by `Id` (e.g. 10 per run). For each call the consumed REST API with `Data` as binary body (or base64 field), `MetaJson` and `ChunkId` as idempotency key; on 2xx set `SentOn = CurrDateTime()`; on an error stop the run and let the next cycle retry. A second timer deletes rows with `SentOn` older than N days. Format notes for the API contract: `odc/RECORDING-FORMAT.md`.
+
+## v0.3.0: native upload and heartbeat
+
+v0.3.0 uploads trip events and recording chunks **natively** (background-safe, token in Keystore/Keychain) to your own exposed REST API, and adds a heartbeat. The whole backend recipe (entities, `RegisterDevice`/`RevokeDevice`, exposed REST API `Telemetry` with custom authentication, forwarding, monitoring, security) is in **`odc/BACKEND-UPLOAD-GUIDE.md`**. Library steps:
+
+1. In the mobile library `DrivingSensorsPlugin` (and the Mentor-editable copy `DrivingSensors`): **Extensibility configuration** plugin source `"npm": "https://github.com/HPdeVries/driving-sensors#v0.3.0"` (paste `odc/extensibility-configuration.fixed-texts.json`; make sure the `v0.3.0` tag exists with `dist/` committed).
+2. Add **public structures** from `odc/structures.md`, section "v0.3.0: native upload and heartbeat structures": `UploadStatus`, `HeartbeatStatus` (`HeartbeatPayload` is only needed in the backend app, as input structure of the `heartbeat` method).
+3. Add **seven public client actions** (JS node body = file in `odc/client-actions/`, inputs/outputs as in its header comment; Integer, not Long Integer):
+
+   | Action | Inputs | Outputs (besides Success, ErrorCode, ErrorMessage) | Typed output |
+   |---|---|---|---|
+   | ConfigureUpload | EndpointBaseUrl, DeviceId, Token (Text); UploadRecordings, UploadEvents, WifiOnly (Boolean); EventBatchSize (Integer, 0 = default) | | |
+   | ClearUpload | | | |
+   | GetUploadStatus | | StatusJson (Text), Status (UploadStatus) | Status = Deserialize StatusJson as UploadStatus |
+   | UploadNow | | | |
+   | StartHeartbeat | IntervalSec (Integer, 0 = 30) | | |
+   | StopHeartbeat | | | |
+   | GetHeartbeatStatus | | StatusJson (Text), Status (HeartbeatStatus) | Status = Deserialize StatusJson as HeartbeatStatus |
+
+   Do not pass the `Token` input to LogMessage or store it anywhere.
+4. **Publish** the library. In `DriveMe`: update the dependency, tick the new actions/structures, build the backend per the guide, publish, new **MABS build** (native code changed), check that `GetPluginVersion` returns `0.3.0`.
+
+When native upload is on, do not also run the v0.2.0 `UploadRecordingChunks` flow or `GetBufferedEvents`/`AckEvents` for the same data (the native uploader acks them).

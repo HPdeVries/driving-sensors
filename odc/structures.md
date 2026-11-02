@@ -231,6 +231,107 @@ Why `sensorInfoJson`: `sensorInfo` is a free-form map (`{"acc":"Bosch BMI160 (ra
 
 Same caveat as TrackingOptions: JSON Serialize emits all attributes with 0 / empty defaults. Pass `""` unless you build the JSON by hand with only the keys you override.
 
+## v0.3.0: native upload and heartbeat structures
+
+All **public**, in the mobile library `DrivingSensorsPlugin`. Same "Create structure from JSON" tips as above. `lastSuccessAt`, `lastErrorAt`, `nextAttemptAt` are epoch ms (Long Integer). Optional keys are simply missing from the JSON until set; the structure then holds the ODC default (0 / empty / False).
+
+### UploadStatus (`StatusJson` of GetUploadStatus)
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| configured | Boolean | |
+| state | Text | `disabled`, `idle`, `uploading`, `waiting_network`, `backoff`, `auth_failed` |
+| endpointBaseUrl, deviceId | Text | the token is never returned |
+| uploadRecordings, uploadEvents, wifiOnly | Boolean | |
+| pendingChunks, pendingEvents, rejectedChunks | Integer | what is on the device now; rejected = refused with 400/413/422, kept, not retried |
+| uploadedChunks, uploadedEvents | Integer | since the last ConfigureUpload |
+| lastSuccessAt, lastErrorAt, nextAttemptAt | Long Integer | epoch ms |
+| lastError | Text | |
+| lastHttpStatus | Integer | |
+
+```json
+{
+  "configured": true,
+  "state": "backoff",
+  "endpointBaseUrl": "https://pro-hrm-dev.outsystems.app/DriveMe/rest/Telemetry",
+  "deviceId": "7d1f0c3a-5b7e-4c0a-9d51-2f8f1b0a6c11",
+  "uploadRecordings": true,
+  "uploadEvents": true,
+  "wifiOnly": false,
+  "pendingChunks": 3,
+  "pendingEvents": 128,
+  "rejectedChunks": 0,
+  "uploadedChunks": 12,
+  "uploadedEvents": 2450,
+  "lastSuccessAt": 1767225600000,
+  "lastErrorAt": 1767225900000,
+  "lastError": "HTTP 503",
+  "lastHttpStatus": 503,
+  "nextAttemptAt": 1767226200000
+}
+```
+
+### HeartbeatStatus (`StatusJson` of GetHeartbeatStatus)
+
+| Attribute | ODC type |
+|---|---|
+| running | Boolean |
+| intervalSec | Integer |
+| sent, succeeded | Integer |
+| lastSentAt, lastSuccessAt | Long Integer (epoch ms) |
+| lastError | Text |
+| lastHttpStatus | Integer |
+
+```json
+{
+  "running": true,
+  "intervalSec": 30,
+  "sent": 120,
+  "succeeded": 118,
+  "lastSentAt": 1767225600000,
+  "lastSuccessAt": 1767225600000,
+  "lastError": "timeout",
+  "lastHttpStatus": 200
+}
+```
+
+### HeartbeatPayload (body of `POST {base}/heartbeat`; the exposed REST API receives it, see `BACKEND-UPLOAD-GUIDE.md`)
+
+| Attribute | ODC type | Notes |
+|---|---|---|
+| deviceId, platform, pluginVersion | Text | |
+| ts | Long Integer | epoch ms on the device |
+| seq | Long Integer | 1, 2, 3 ... since StartHeartbeat |
+| intervalSec, processUptimeSec | Integer | uptime resets when the OS restarted the process |
+| appState | Text | `foreground` / `background` |
+| batteryLevel | Integer | 0..100, -1 unknown |
+| charging, tracking, inTrip, recording | Boolean | |
+| network | Text | `wifi`, `cellular`, `other`, `none` |
+| pendingEvents, pendingChunks | Integer | |
+| uploadState | Text | |
+
+```json
+{
+  "deviceId": "7d1f0c3a-5b7e-4c0a-9d51-2f8f1b0a6c11",
+  "platform": "android",
+  "pluginVersion": "0.3.0",
+  "ts": 1767225600000,
+  "seq": 42,
+  "intervalSec": 30,
+  "processUptimeSec": 1290,
+  "appState": "background",
+  "batteryLevel": 81,
+  "charging": false,
+  "network": "cellular",
+  "tracking": true,
+  "inTrip": true,
+  "recording": false,
+  "pendingEvents": 4,
+  "pendingChunks": 0,
+  "uploadState": "idle"
+}
+```
+
 ## Server entity for uploaded chunks (in the consuming app)
 
 See `STUDIO-BUILD-GUIDE.md`, section "v0.2.0: raw sensor recording": entity `RecordingChunk`, server action `StoreRecordingChunk`, client action `UploadRecordingChunks`. CSV format and size estimates: `RECORDING-FORMAT.md`.

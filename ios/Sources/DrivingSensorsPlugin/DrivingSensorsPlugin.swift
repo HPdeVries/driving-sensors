@@ -34,7 +34,7 @@ public class DrivingSensorsPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "stopHeartbeat", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getHeartbeatStatus", returnType: CAPPluginReturnPromise)
     ]
-    private let implementation = DrivingSensors()
+    private let implementation = DrivingSensors.shared
 
     override public func load() {
         implementation.resumeIfNeeded()

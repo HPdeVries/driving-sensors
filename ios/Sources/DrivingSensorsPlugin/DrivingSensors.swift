@@ -21,7 +21,17 @@ func dsLog(_ message: String) {
         var options: TrackingOptions
     }
 
-    private static let stateKey = "DrivingSensors.state"
+    /// One coordinator per process: the Capacitor plugin and `resumeFromLaunch()` share it.
+    public static let shared = DrivingSensors()
+
+    /// Call from `application(_:didFinishLaunchingWithOptions:)` when `launchOptions?[.location] != nil`
+    /// (background relaunch by a significant location change) for hosts whose Capacitor bridge is not
+    /// created on a background launch. Resumes every persisted consumer. Idempotent; main thread.
+    @objc public static func resumeFromLaunch() {
+        shared.resumeIfNeeded()
+    }
+
+    private static let stateKey = PersistedConsumers.trackingKey
     private static let askedAlwaysKey = "DrivingSensors.askedAlways"
     private static let tickInterval: TimeInterval = 10
 
@@ -88,7 +98,8 @@ func dsLog(_ message: String) {
 
     // MARK: - Lifecycle
 
-    /// Called from the plugin's load(): resume if state says active and permission allows.
+    /// Plugin load or `resumeFromLaunch()`, foreground or background launch. Idempotent. A consumer
+    /// without location permission stays persisted but idle (no stopReason); never clears state.
     func resumeIfNeeded() {
         resumeRecordingIfNeeded()
         uploads.start()
@@ -96,10 +107,11 @@ func dsLog(_ message: String) {
         DispatchQueue.main.async {
             guard let data = self.defaults.data(forKey: DrivingSensors.stateKey),
                   let state = try? JSONDecoder().decode(PersistedState.self, from: data),
-                  state.active else { return }
+                  state.active else { return self.reconcileLocation() }
+            guard self.work.sync(execute: { !self.active }) else { return }
             guard self.hasLocationPermission() else {
                 dsLog("persisted tracking not resumed: location permission missing")
-                return
+                return self.reconcileLocation()
             }
             self.begin(sessionId: state.sessionId, options: state.options)
         }
@@ -141,9 +153,9 @@ func dsLog(_ message: String) {
                 self.locationRunning = false
                 self.motionRunning = false
             }
+            self.defaults.removeObject(forKey: DrivingSensors.stateKey)
             self.reconcileLocation()
             if self.standaloneMotionCount == 0 { self.motionManager.stopDeviceMotionUpdates() }
-            self.defaults.removeObject(forKey: DrivingSensors.stateKey)
             completion()
         }
     }
@@ -189,6 +201,7 @@ func dsLog(_ message: String) {
         if work.sync(execute: { active }) { consumers.insert(.tracking) }
         if currentRecorder() != nil { consumers.insert(.recording) }
         if heartbeatKeepAlive { consumers.insert(.heartbeat) }
+        reconcileSignificantChanges()
         switch consumers.plan {
         case .off:
             manager.stopUpdatingLocation()
@@ -201,6 +214,21 @@ func dsLog(_ message: String) {
             manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
             manager.distanceFilter = 3000
             manager.startUpdatingLocation()
+        }
+    }
+
+    private var monitoringSignificant = false
+
+    /// Main thread. Keeps the app relaunchable while any consumer is persisted (needs "Always").
+    private func reconcileSignificantChanges() {
+        let persisted = PersistedConsumers.load(defaults: defaults, heartbeatRunning: heartbeat.isRunning)
+        let want = SignificantChangePolicy.shouldMonitor(persisted: persisted, authorization: manager.authorizationStatus)
+        guard want != monitoringSignificant else { return }
+        monitoringSignificant = want
+        if want {
+            manager.startMonitoringSignificantLocationChanges()
+        } else {
+            manager.stopMonitoringSignificantLocationChanges()
         }
     }
 
@@ -426,11 +454,12 @@ func dsLog(_ message: String) {
         var startedAt: Int64
     }
 
-    private static let recordingKey = "DrivingSensors.recording"
+    private static let recordingKey = PersistedConsumers.recordingKey
     private static let recordingStopReasonKey = "DrivingSensors.recordingStopReason"
     private let recordingLock = NSLock()
     private var recorderRef: SensorRecorder?
     private var recordingDirectory: URL?
+    private var recordingResuming = false
 
     private func currentRecorder() -> SensorRecorder? {
         recordingLock.lock(); defer { recordingLock.unlock() }
@@ -451,20 +480,24 @@ func dsLog(_ message: String) {
 
     /// Plugin load: finalize leftover parts (before any new writer exists), then resume.
     private func resumeRecordingIfNeeded() {
+        recordingLock.lock()
+        // A live recorder (or a resume already in flight) owns the .part files: do not finalize them.
+        if recorderRef != nil || recordingResuming { recordingLock.unlock(); return }
+        recordingResuming = true
+        recordingLock.unlock()
         DispatchQueue.global(qos: .utility).async {
             guard let dir = try? self.recordingDir() else { return }
             if !RecordingFiles.finalizeLeftovers(in: dir).isEmpty {
                 NotificationCenter.default.post(name: .drivingSensorsChunkFinalized, object: nil)
             }
             DispatchQueue.main.async {
+                self.recordingLock.lock(); self.recordingResuming = false; self.recordingLock.unlock()
                 guard let data = self.defaults.data(forKey: DrivingSensors.recordingKey),
                       let st = try? JSONDecoder().decode(PersistedRecording.self, from: data) else { return }
                 guard self.currentRecorder() == nil else { return }
                 guard self.hasLocationPermission() else {
                     dsLog("persisted recording not resumed: location permission missing")
-                    self.defaults.removeObject(forKey: DrivingSensors.recordingKey)
-                    self.defaults.set("PERMISSION_LOST", forKey: DrivingSensors.recordingStopReasonKey)
-                    return
+                    return self.reconcileLocation()
                 }
                 self.startRecorder(dir: dir, id: st.recordingId, options: st.options, seq: st.nextSeq, startedAt: st.startedAt)
             }
@@ -612,8 +645,8 @@ func dsLog(_ message: String) {
             }
             UIDevice.current.isBatteryMonitoringEnabled = true
             self.heartbeatKeepAlive = true
-            self.reconcileLocation()
             self.heartbeat.start(intervalSec: HeartbeatScheduler.clamp(intervalSec ?? 30))
+            self.reconcileLocation()
             completion(.success(()))
         }
     }
@@ -629,11 +662,10 @@ func dsLog(_ message: String) {
 
     /// Main thread, plugin load.
     private func resumeHeartbeatIfNeeded() {
-        guard heartbeat.isRunning else { return }
+        guard heartbeat.isRunning, !heartbeatKeepAlive else { return }
         guard uploads.store.loadSettings() != nil, hasLocationPermission() else {
-            dsLog("persisted heartbeat not resumed: upload config or location permission missing")
-            heartbeat.stop()
-            return
+            dsLog("persisted heartbeat not resumed: upload config or location permission missing; stays persisted, idle")
+            return reconcileLocation()
         }
         UIDevice.current.isBatteryMonitoringEnabled = true
         heartbeatKeepAlive = true
@@ -785,6 +817,7 @@ func dsLog(_ message: String) {
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        reconcileSignificantChanges()
         if currentRecorder() != nil, !hasLocationPermission() {
             dsLog("recording stopped: location permission lost")
             stopRecordingInternal(reason: "PERMISSION_LOST") {}

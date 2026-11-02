@@ -45,8 +45,18 @@ class DrivingSensorsPlugin : Plugin() {
 
     override fun load() {
         try {
+            AppStateTracker.register(context.applicationContext as android.app.Application)
+            AppStateTracker.markStarted(activity)
+            RecordingCoordinator.io.execute {
+                UploadScheduler.ensurePeriodic(context)
+                UploadScheduler.triggerIfPending(context)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "could not schedule upload", e)
+        }
+        try {
             val recording = RecordingCoordinator.loadState(context)
-            if ((TrackingCoordinator.loadState(context) != null || recording != null) &&
+            if ((TrackingCoordinator.loadState(context) != null || recording != null || HeartbeatCoordinator.loadState(context) != null) &&
                 isGranted(Manifest.permission.ACCESS_FINE_LOCATION)
             ) {
                 // The service finalizes leftover chunks itself before it starts writing.
@@ -328,7 +338,7 @@ class DrivingSensorsPlugin : Plugin() {
                     ret.put("recordingId", it.recordingId)
                     ret.put("startedAt", it.startedAt)
                 }
-                ret.put("chunksPending", dir.listFiles()?.count { it.name.endsWith(RecordingFiles.JSON_SUFFIX) } ?: 0)
+                ret.put("chunksPending", RecordingFiles.countPending(dir))
                 ret.put("bytesPending", RecordingFiles.totalBytes(dir))
                 ret.put("available", available)
                 val rates = RecordingCoordinator.rates
@@ -354,17 +364,8 @@ class DrivingSensorsPlugin : Plugin() {
         val dir = RecordingCoordinator.dir(context)
         RecordingCoordinator.io.execute {
             try {
-                val infos = ArrayList<JSObject>()
-                dir.listFiles()?.filter { it.name.endsWith(RecordingFiles.JSON_SUFFIX) }?.forEach { f ->
-                    try {
-                        infos.add(JSObject(f.readText(Charsets.UTF_8)))
-                    } catch (e: Exception) {
-                        Log.w(TAG, "unreadable chunk metadata ${f.name}", e)
-                    }
-                }
-                infos.sortWith(compareBy({ it.optLong("startTs") }, { it.optInt("seq") }))
                 val arr = JSArray()
-                infos.take(limit).forEach { arr.put(it) }
+                RecordingFiles.listPending(dir).take(limit).forEach { arr.put(JSObject(it.metaJson)) }
                 call.resolve(JSObject().put("chunks", arr))
             } catch (e: Exception) {
                 call.reject("Could not list chunks: ${e.message}", "INTERNAL")
@@ -388,14 +389,7 @@ class DrivingSensorsPlugin : Plugin() {
                     call.reject("Unknown chunkId", "INVALID_ARGUMENT")
                     return@execute
                 }
-                val ret = JSObject(json.readText(Charsets.UTF_8))
-                ret.put("format", "csv-v1")
-                ret.put("encoding", "gzip+base64")
-                ret.put("platform", "android")
-                ret.put("deviceModel", "${Build.MANUFACTURER} ${Build.MODEL}")
-                ret.put("osVersion", Build.VERSION.RELEASE)
-                ret.put("pluginVersion", PLUGIN_VERSION)
-                ret.put("sensorInfo", sensorInfo())
+                val ret = ChunkJson.fillHeader(JSObject(), json.readText(Charsets.UTF_8), AndroidDeviceInfo(context))
                 ret.put("data", Base64.encodeToString(gz.readBytes(), Base64.NO_WRAP))
                 call.resolve(ret)
             } catch (e: Exception) {
@@ -415,8 +409,7 @@ class DrivingSensorsPlugin : Plugin() {
         RecordingCoordinator.io.execute {
             try {
                 // Metadata first: a chunk without .json is no longer listed.
-                RecordingFiles.jsonFile(dir, chunkId).delete()
-                RecordingFiles.gzFile(dir, chunkId).delete()
+                RecordingFiles.delete(dir, chunkId)
                 call.resolve()
             } catch (e: Exception) {
                 call.reject("Could not delete chunk: ${e.message}", "INTERNAL")
@@ -424,22 +417,166 @@ class DrivingSensorsPlugin : Plugin() {
         }
     }
 
+    // ---- upload ----
+
+    @PluginMethod
+    fun configureUpload(call: PluginCall) {
+        val settings = try {
+            UploadSettings.validate(
+                endpointBaseUrl = call.getString("endpointBaseUrl"),
+                deviceId = call.getString("deviceId"),
+                token = call.getString("token"),
+                uploadRecordings = call.getBoolean("uploadRecordings"),
+                uploadEvents = call.getBoolean("uploadEvents"),
+                wifiOnly = call.getBoolean("wifiOnly"),
+                eventBatchSize = call.getInt("eventBatchSize"),
+            )
+        } catch (e: IllegalArgumentException) {
+            call.reject(e.message, "INVALID_ARGUMENT")
+            return
+        }
+        val token = call.getString("token") ?: ""
+        RecordingCoordinator.io.execute {
+            try {
+                UploadRuntime.store(context).save(settings, token)
+                UploadScheduler.ensurePeriodic(context)
+                UploadScheduler.enqueue(context, force = true, replace = true)
+                call.resolve()
+            } catch (e: Exception) {
+                call.reject("Could not store upload configuration: ${e.javaClass.simpleName}", "INTERNAL")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun clearUpload(call: PluginCall) {
+        RecordingCoordinator.io.execute {
+            try {
+                UploadScheduler.cancelAll(context)
+                UploadRuntime.store(context).clear()
+                call.resolve()
+            } catch (e: Exception) {
+                call.reject("Could not clear upload configuration: ${e.javaClass.simpleName}", "INTERNAL")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun getUploadStatus(call: PluginCall) {
+        RecordingCoordinator.io.execute {
+            try {
+                val store = UploadRuntime.store(context)
+                val cfg = store.loadConfig()
+                val st = store.loadStatus()
+                val chunks = UploadRuntime.chunkSource(context)
+                val pendingEvents = UploadRuntime.eventSource(context).count()
+                val pendingChunks = chunks.countPending()
+                var state = if (cfg == null) UploadStates.DISABLED else st.state
+                if (cfg != null && state == UploadStates.IDLE) {
+                    if (UploadRuntime.uploader(context).isRunning) {
+                        state = UploadStates.UPLOADING
+                    } else if (pendingEvents + pendingChunks > 0 &&
+                        (NetworkInfoHelper.kind(context) == "none" || (cfg.wifiOnly && !NetworkInfoHelper.isUnmetered(context)))
+                    ) {
+                        state = UploadStates.WAITING_NETWORK
+                    }
+                }
+                val ret = JSObject()
+                ret.put("configured", cfg != null)
+                ret.put("state", state)
+                if (cfg != null) {
+                    ret.put("endpointBaseUrl", cfg.baseUrl)
+                    ret.put("deviceId", cfg.deviceId)
+                    ret.put("uploadRecordings", cfg.uploadRecordings)
+                    ret.put("uploadEvents", cfg.uploadEvents)
+                    ret.put("wifiOnly", cfg.wifiOnly)
+                }
+                ret.put("pendingChunks", pendingChunks)
+                ret.put("pendingEvents", pendingEvents)
+                ret.put("rejectedChunks", chunks.countRejected())
+                ret.put("uploadedChunks", st.uploadedChunks)
+                ret.put("uploadedEvents", st.uploadedEvents)
+                st.lastSuccessAt?.let { ret.put("lastSuccessAt", it) }
+                st.lastErrorAt?.let { ret.put("lastErrorAt", it) }
+                st.lastError?.let { ret.put("lastError", it) }
+                st.lastHttpStatus?.let { ret.put("lastHttpStatus", it) }
+                if (state == UploadStates.BACKOFF) st.nextAttemptAt?.let { ret.put("nextAttemptAt", it) }
+                call.resolve(ret)
+            } catch (e: Exception) {
+                call.reject("Could not read upload status: ${e.message}", "INTERNAL")
+            }
+        }
+    }
+
+    @PluginMethod
+    fun uploadNow(call: PluginCall) {
+        RecordingCoordinator.io.execute {
+            try {
+                val store = UploadRuntime.store(context)
+                if (store.loadConfig() == null) {
+                    call.reject("configureUpload first", "INVALID_ARGUMENT")
+                    return@execute
+                }
+                if (store.loadStatus().state != UploadStates.AUTH_FAILED) {
+                    UploadScheduler.enqueue(context, force = true, expedited = true, replace = true)
+                }
+                call.resolve()
+            } catch (e: Exception) {
+                call.reject("Could not start upload: ${e.message}", "INTERNAL")
+            }
+        }
+    }
+
+    // ---- heartbeat ----
+
+    @PluginMethod
+    fun startHeartbeat(call: PluginCall) {
+        val interval = HeartbeatCoordinator.clampInterval(call.getDouble("intervalSec"))
+        if (UploadRuntime.store(context).loadConfig() == null) {
+            call.reject("configureUpload first", "INVALID_ARGUMENT")
+            return
+        }
+        if (!isGranted(Manifest.permission.ACCESS_FINE_LOCATION)) {
+            call.reject("Fine location permission is required", "PERMISSION_DENIED")
+            return
+        }
+        try {
+            HeartbeatCoordinator.begin(context, interval)
+            call.resolve()
+        } catch (e: Exception) {
+            call.reject("Could not start heartbeat: ${e.message}", "INTERNAL", e)
+        }
+    }
+
+    @PluginMethod
+    fun stopHeartbeat(call: PluginCall) {
+        try {
+            HeartbeatCoordinator.end(context)
+            call.resolve()
+        } catch (e: Exception) {
+            call.reject("Could not stop heartbeat: ${e.message}", "INTERNAL", e)
+        }
+    }
+
+    @PluginMethod
+    fun getHeartbeatStatus(call: PluginCall) {
+        val state = HeartbeatCoordinator.loadState(context)
+        val c = UploadRuntime.heartbeat(context).counters
+        val ret = JSObject()
+        ret.put("running", state != null)
+        state?.let { ret.put("intervalSec", it.intervalSec) }
+        ret.put("sent", c.sent)
+        ret.put("succeeded", c.succeeded)
+        c.lastSentAt?.let { ret.put("lastSentAt", it) }
+        c.lastSuccessAt?.let { ret.put("lastSuccessAt", it) }
+        c.lastError?.let { ret.put("lastError", it) }
+        c.lastHttpStatus?.let { ret.put("lastHttpStatus", it) }
+        call.resolve(ret)
+    }
+
     private val sensorManager by lazy { context.getSystemService(Context.SENSOR_SERVICE) as SensorManager }
 
     private fun hasSensor(type: Int) = sensorManager.getDefaultSensor(type) != null
-
-    private fun sensorInfo(): JSObject {
-        val o = JSObject()
-        fun describe(key: String, type: Int, kind: String) {
-            sensorManager.getDefaultSensor(type)?.let { o.put(key, "${it.vendor} ${it.name}, $kind") }
-        }
-        describe("acc", Sensor.TYPE_ACCELEROMETER, "calibrated")
-        describe("gyr", Sensor.TYPE_GYROSCOPE, "calibrated")
-        describe("mag", Sensor.TYPE_MAGNETIC_FIELD, "calibrated")
-        describe("bar", Sensor.TYPE_PRESSURE, "calibrated")
-        o.put("loc", "Fused location provider, high accuracy")
-        return o
-    }
 
     // ---- helpers ----
 
@@ -489,20 +626,7 @@ class DrivingSensorsPlugin : Plugin() {
         )
     }
 
-    private fun toJson(e: StoredEvent): JSObject {
-        val r = e.record
-        val o = JSObject()
-        o.put("id", e.id)
-        o.put("ts", r.ts)
-        o.put("type", r.type)
-        o.put("sessionId", r.sessionId)
-        r.lat?.let { o.put("lat", it) }
-        r.lon?.let { o.put("lon", it) }
-        r.speedMps?.let { o.put("speedMps", it) }
-        r.accuracyM?.let { o.put("accuracyM", it) }
-        r.peakMps2?.let { o.put("peakMps2", it) }
-        return o
-    }
+    private fun toJson(e: StoredEvent): JSObject = EventJson.fill(JSObject(), e)
 
     companion object {
         private const val TAG = "DrivingSensors"

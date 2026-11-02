@@ -24,6 +24,7 @@ class RecordingWriter(
     private val onChunkOpened: (Int) -> Unit = {},
     private val onStorageFull: () -> Unit = {},
     private val onError: (Throwable) -> Unit = {},
+    private val onChunkFinalized: () -> Unit = {},
 ) {
     private val lock = Any()
     private val buffer = StringBuilder(64 * 1024)
@@ -139,7 +140,12 @@ class RecordingWriter(
         try {
             stream.close()
         } finally {
-            if (part != null) RecordingFiles.finalizePart(part)
+            if (part != null && RecordingFiles.finalizePart(part) != null) {
+                try {
+                    onChunkFinalized()
+                } catch (_: Throwable) {
+                }
+            }
         }
     }
 }

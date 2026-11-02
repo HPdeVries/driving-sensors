@@ -68,7 +68,12 @@ object RecordingSensors {
 
 /** Notification title/text for what the shared foreground service is running. */
 object ServiceNotificationText {
-    fun compose(tracking: TrackingConfig?, recording: RecordingConfig?): Pair<String, String> = when {
+    fun compose(tracking: TrackingConfig?, recording: RecordingConfig?, heartbeat: Boolean = false): Pair<String, String> = when {
+        heartbeat && tracking == null && recording == null -> "Heartbeat active" to "Sending heartbeat to your server"
+        heartbeat && tracking != null && recording != null ->
+            tracking.notificationTitle to "${tracking.notificationText} + ${recording.notificationText} + heartbeat"
+        heartbeat && tracking != null -> tracking.notificationTitle to "${tracking.notificationText} + heartbeat"
+        heartbeat && recording != null -> recording.notificationTitle to "${recording.notificationText} + heartbeat"
         tracking != null && recording != null ->
             tracking.notificationTitle to "${tracking.notificationText} + ${recording.notificationText}"
         recording != null -> recording.notificationTitle to recording.notificationText

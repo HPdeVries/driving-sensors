@@ -2,6 +2,9 @@ import { WebPlugin } from '@capacitor/core';
 
 import type {
   DrivingSensorsPlugin,
+  RecordingChunk,
+  RecordingChunkInfo,
+  RecordingStatus,
   PermissionStatus,
   SensorReadings,
   TelemetryEvent,
@@ -50,5 +53,34 @@ export class DrivingSensorsWeb extends WebPlugin implements DrivingSensorsPlugin
 
   async getPluginVersion(): Promise<{ version: string; platform: 'android' | 'ios' | 'web' }> {
     return { version: PLUGIN_VERSION, platform: 'web' };
+  }
+
+  async startRecording(): Promise<{ recordingId: string }> {
+    throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+  }
+
+  async stopRecording(): Promise<void> {
+    throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+  }
+
+  async getRecordingStatus(): Promise<RecordingStatus> {
+    return {
+      recording: false,
+      chunksPending: 0,
+      bytesPending: 0,
+      available: { acc: false, gyr: false, mag: false, bar: false, loc: false },
+    };
+  }
+
+  async listRecordingChunks(): Promise<{ chunks: RecordingChunkInfo[] }> {
+    return { chunks: [] };
+  }
+
+  async getRecordingChunk(): Promise<RecordingChunk> {
+    throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+  }
+
+  async ackRecordingChunk(): Promise<void> {
+    return;
   }
 }

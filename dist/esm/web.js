@@ -32,5 +32,28 @@ export class DrivingSensorsWeb extends WebPlugin {
     async getPluginVersion() {
         return { version: PLUGIN_VERSION, platform: 'web' };
     }
+    async startRecording() {
+        throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+    }
+    async stopRecording() {
+        throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+    }
+    async getRecordingStatus() {
+        return {
+            recording: false,
+            chunksPending: 0,
+            bytesPending: 0,
+            available: { acc: false, gyr: false, mag: false, bar: false, loc: false },
+        };
+    }
+    async listRecordingChunks() {
+        return { chunks: [] };
+    }
+    async getRecordingChunk() {
+        throw this.unavailable('DrivingSensors is only available on Android and iOS.');
+    }
+    async ackRecordingChunk() {
+        return;
+    }
 }
 //# sourceMappingURL=web.js.map

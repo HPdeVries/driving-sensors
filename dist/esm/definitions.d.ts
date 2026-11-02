@@ -62,6 +62,32 @@ export interface DrivingSensorsPlugin {
         version: string;
         platform: 'android' | 'ios' | 'web';
     }>;
+    /**
+     * Start raw sensor recording (debug / data-collection mode), independent of trip tracking.
+     * Samples accelerometer, gyroscope, magnetometer, barometer and GPS continuously and writes
+     * them to compressed chunk files on the device. Runs in the background like tracking.
+     * Idempotent: if already recording, resolves with the current recording id and ignores options.
+     */
+    startRecording(options?: RecordingOptions): Promise<{
+        recordingId: string;
+    }>;
+    /** Stop recording and finalize the current chunk. Finished chunks are kept until acked. */
+    stopRecording(): Promise<void>;
+    getRecordingStatus(): Promise<RecordingStatus>;
+    /** Finished chunks waiting to be fetched, oldest first. The chunk being written is not listed. */
+    listRecordingChunks(options?: {
+        limit?: number;
+    }): Promise<{
+        chunks: RecordingChunkInfo[];
+    }>;
+    /** One finished chunk including its gzip+base64 CSV payload. Does not delete it. */
+    getRecordingChunk(options: {
+        chunkId: string;
+    }): Promise<RecordingChunk>;
+    /** Delete a finished chunk after it has been delivered. Unknown ids resolve without error. */
+    ackRecordingChunk(options: {
+        chunkId: string;
+    }): Promise<void>;
 }
 export interface LocationReading {
     /** Epoch ms of the fix. */
@@ -152,4 +178,81 @@ export interface TelemetryEvent {
     accuracyM?: number;
     /** Peak horizontal acceleration magnitude for HARSH_* events, m/s², positive. */
     peakMps2?: number;
+}
+export type RecordingSensor = 'acc' | 'gyr' | 'mag' | 'bar' | 'loc';
+export interface RecordingOptions {
+    /** Accelerometer rate, Hz. Default 100. */
+    accelHz?: number;
+    /** Gyroscope rate, Hz. Default 100. */
+    gyroHz?: number;
+    /** Magnetometer rate, Hz. Default 50. */
+    magHz?: number;
+    /** Barometer rate, Hz. Default 10 (iOS delivers ~1 Hz regardless). */
+    baroHz?: number;
+    /** GPS interval, ms. Default 1000. */
+    locationIntervalMs?: number;
+    /** Chunk length, seconds. Default 60. */
+    chunkSeconds?: number;
+    /** Stop recording (stopReason STORAGE_FULL) when finished + current chunks exceed this, MB. Default 500. */
+    maxStorageMb?: number;
+    /** Android foreground-service notification title. Default "Sensor recording active". */
+    notificationTitle?: string;
+    /** Android foreground-service notification text. Default "Recording raw sensor data". */
+    notificationText?: string;
+}
+export interface RecordingSensorStats {
+    acc: number;
+    gyr: number;
+    mag: number;
+    bar: number;
+    loc: number;
+}
+export interface RecordingStatus {
+    recording: boolean;
+    recordingId?: string;
+    /** Epoch ms when the current recording started. */
+    startedAt?: number;
+    /** Finished chunks waiting to be fetched. */
+    chunksPending: number;
+    /** Bytes on disk for finished + current chunks. */
+    bytesPending: number;
+    /** Which sensors exist on this device. */
+    available: {
+        acc: boolean;
+        gyr: boolean;
+        mag: boolean;
+        bar: boolean;
+        loc: boolean;
+    };
+    /** Samples per sensor in the last ~5 seconds divided by the window length (actual rate). */
+    measuredHz?: RecordingSensorStats;
+    /** Set when recording stopped by itself: STORAGE_FULL, PERMISSION_LOST, or ERROR. */
+    stopReason?: string;
+}
+export interface RecordingChunkInfo {
+    /** `<recordingId>-<seq>` with seq zero-padded to 6 digits. */
+    chunkId: string;
+    recordingId: string;
+    seq: number;
+    /** Epoch ms of the first and last sample in the chunk. */
+    startTs: number;
+    endTs: number;
+    /** Size of the gzip payload, bytes. */
+    bytes: number;
+    /** Samples per sensor in this chunk. */
+    counts: RecordingSensorStats;
+}
+export interface RecordingChunk extends RecordingChunkInfo {
+    /** Always "csv-v1": see SPEC.md "Recording CSV format". */
+    format: 'csv-v1';
+    /** Always "gzip+base64". */
+    encoding: 'gzip+base64';
+    platform: 'android' | 'ios';
+    deviceModel: string;
+    osVersion: string;
+    pluginVersion: string;
+    /** Sensor descriptions, e.g. vendor/name and whether calibrated. */
+    sensorInfo: Record<string, string>;
+    /** Base64 of the gzip-compressed CSV. */
+    data: string;
 }

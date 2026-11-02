@@ -92,3 +92,54 @@ iOS: requesting `location` calls `requestWhenInUseAuthorization`; requesting `ba
 
 ### Android: undeclared permissions
 - In `requestPermissions`, before requesting, check the requested permission strings are declared in the app manifest (`packageManager.getPackageInfo(packageName, GET_PERMISSIONS).requestedPermissions`). If any are missing, reject with `NOT_SUPPORTED` and message `Missing in AndroidManifest.xml: <list>`.
+
+## v0.2.0: raw sensor recording
+
+Independent of trip tracking: either, both or neither can run. On Android both are hosted by the same foreground service (it runs while at least one is active; notification text reflects what is running). On iOS both share the same CLLocationManager for background liveness: location updates keep running while either is active (stopping one must not stop the other's location updates).
+
+### Sensors and units (device axes)
+
+| sensor | Android | iOS | columns x,y,z,v4,v5 |
+|---|---|---|---|
+| acc | TYPE_ACCELEROMETER (incl. gravity) | CMAccelerometerData (raw), × -9.80665 so that a phone lying face-up reads z ≈ +9.81 (Android convention) | x,y,z m/s² |
+| gyr | TYPE_GYROSCOPE (calibrated) | CMGyroData (raw) | x,y,z rad/s |
+| mag | TYPE_MAGNETIC_FIELD (calibrated) | CMMagnetometerData (raw, uncalibrated) | x,y,z µT |
+| bar | TYPE_PRESSURE | CMAltimeter relative altitude updates (pressure kPa × 10) | x = pressure hPa; y = relative altitude m (iOS only, empty on Android) |
+| loc | FusedLocation HIGH_ACCURACY at locationIntervalMs | the shared CLLocationManager, best accuracy, distanceFilter none | x = lat, y = lon, z = altitude m, v4 = speed m/s, v5 = horizontal accuracy m (empty when unknown) |
+
+Use the sensor's own event timestamp converted to epoch ms (Android: elapsedRealtimeNanos offset computed once per registration; iOS: `timestamp` + (Date().timeIntervalSince1970 - systemUptime) computed once). Location uses the fix time. Requested rates are hints; record whatever the platform delivers (no resampling). A sensor missing on the device is skipped and reported `available.<s> = false`. sensorInfo records name/vendor and calibrated/raw per sensor.
+
+Android: register with `samplingPeriodUs = 1_000_000 / hz` (100 Hz needs no HIGH_SAMPLING_RATE_SENSORS). iOS: one CMMotionManager per app: the plugin's existing manager must be used; raw accelerometer/gyro/magnetometer updates run alongside device-motion updates used by trip tracking.
+
+### Recording CSV format (csv-v1)
+
+UTF-8, `\n` line endings, header line then one sample per line, chronological per sensor (sensors interleaved in arrival order):
+
+```
+t_ms,sensor,x,y,z,v4,v5
+1793367101003,acc,0.123,-0.045,9.812,,
+1793367101005,gyr,0.0012,-0.0004,0.0001,,
+1793367101010,mag,21.5,-3.2,-40.1,,
+1793367101050,bar,1013.25,,,,
+1793367101000,loc,52.09073741,5.12142212,4.2,13.4,4.8
+```
+
+Numbers: up to 6 decimals for acc/gyr/mag/bar (Locale.ROOT / POSIX formatting, `.` decimal separator), 8 for lat/lon. Empty field = unknown.
+
+### Files and durability
+
+- Directory: Android `filesDir/driving_sensors/recordings/`, iOS Application Support `driving_sensors/recordings/` (excluded from backup).
+- Samples are buffered in memory and appended to `<chunkId>.csv.part` (plain CSV) once per second on a background thread (never on the sensor callback thread).
+- Every `chunkSeconds` (by wall clock since chunk start) or on stop: close the part file, gzip it to `<chunkId>.csv.gz`, write `<chunkId>.json` with the RecordingChunkInfo fields, delete the part file. Only then is the chunk "finished" and listed.
+- On plugin load / service start: any leftover `.part` files are finalized the same way (data up to the last 1-s flush survives a crash).
+- Persist `{recording, recordingId, options, nextSeq, startedAt}` so recording resumes after a process restart (continuing seq numbers, same recordingId), like tracking.
+- Storage check every flush: if total bytes in the directory > maxStorageMb, stop with stopReason STORAGE_FULL. stopReason is cleared on the next startRecording.
+
+### Methods
+
+- `startRecording`: validate options (positive numbers, else INVALID_ARGUMENT; clamp accel/gyro/mag Hz to [1, 200], baro [1, 50], locationIntervalMs [500, 60000], chunkSeconds [10, 600], maxStorageMb [10, 10000]). Requires foreground location permission (PERMISSION_DENIED otherwise) because GPS is part of the recording and keeps the app alive in the background. recordingId = UUID v4.
+- `listRecordingChunks({limit = 100})`: finished chunks by seq/creation order, from the .json metadata files.
+- `getRecordingChunk({chunkId})`: read metadata + base64 of the .gz file; reject INVALID_ARGUMENT if unknown. Do this off the main thread.
+- `ackRecordingChunk({chunkId})`: delete .gz + .json.
+- `getRecordingStatus`: measuredHz from a rolling 5-s window of per-sensor sample counts kept in memory (omit when not recording).
+- All file IO off the main/UI thread.

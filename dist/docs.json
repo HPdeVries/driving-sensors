@@ -149,6 +149,98 @@
         "docs": "Version of the native plugin code compiled into the app (not the JS bundle), plus the platform.",
         "complexTypes": [],
         "slug": "getpluginversion"
+      },
+      {
+        "name": "startRecording",
+        "signature": "(options?: RecordingOptions | undefined) => Promise<{ recordingId: string; }>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "RecordingOptions | undefined"
+          }
+        ],
+        "returns": "Promise<{ recordingId: string; }>",
+        "tags": [],
+        "docs": "Start raw sensor recording (debug / data-collection mode), independent of trip tracking.\nSamples accelerometer, gyroscope, magnetometer, barometer and GPS continuously and writes\nthem to compressed chunk files on the device. Runs in the background like tracking.\nIdempotent: if already recording, resolves with the current recording id and ignores options.",
+        "complexTypes": [
+          "RecordingOptions"
+        ],
+        "slug": "startrecording"
+      },
+      {
+        "name": "stopRecording",
+        "signature": "() => Promise<void>",
+        "parameters": [],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Stop recording and finalize the current chunk. Finished chunks are kept until acked.",
+        "complexTypes": [],
+        "slug": "stoprecording"
+      },
+      {
+        "name": "getRecordingStatus",
+        "signature": "() => Promise<RecordingStatus>",
+        "parameters": [],
+        "returns": "Promise<RecordingStatus>",
+        "tags": [],
+        "docs": "",
+        "complexTypes": [
+          "RecordingStatus"
+        ],
+        "slug": "getrecordingstatus"
+      },
+      {
+        "name": "listRecordingChunks",
+        "signature": "(options?: { limit?: number | undefined; } | undefined) => Promise<{ chunks: RecordingChunkInfo[]; }>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ limit?: number | undefined; } | undefined"
+          }
+        ],
+        "returns": "Promise<{ chunks: RecordingChunkInfo[]; }>",
+        "tags": [],
+        "docs": "Finished chunks waiting to be fetched, oldest first. The chunk being written is not listed.",
+        "complexTypes": [
+          "RecordingChunkInfo"
+        ],
+        "slug": "listrecordingchunks"
+      },
+      {
+        "name": "getRecordingChunk",
+        "signature": "(options: { chunkId: string; }) => Promise<RecordingChunk>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ chunkId: string; }"
+          }
+        ],
+        "returns": "Promise<RecordingChunk>",
+        "tags": [],
+        "docs": "One finished chunk including its gzip+base64 CSV payload. Does not delete it.",
+        "complexTypes": [
+          "RecordingChunk"
+        ],
+        "slug": "getrecordingchunk"
+      },
+      {
+        "name": "ackRecordingChunk",
+        "signature": "(options: { chunkId: string; }) => Promise<void>",
+        "parameters": [
+          {
+            "name": "options",
+            "docs": "",
+            "type": "{ chunkId: string; }"
+          }
+        ],
+        "returns": "Promise<void>",
+        "tags": [],
+        "docs": "Delete a finished chunk after it has been delivered. Unknown ids resolve without error.",
+        "complexTypes": [],
+        "slug": "ackrecordingchunk"
       }
     ],
     "properties": []
@@ -561,6 +653,316 @@
           "type": "number | undefined"
         }
       ]
+    },
+    {
+      "name": "RecordingOptions",
+      "slug": "recordingoptions",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "accelHz",
+          "tags": [],
+          "docs": "Accelerometer rate, Hz. Default 100.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "gyroHz",
+          "tags": [],
+          "docs": "Gyroscope rate, Hz. Default 100.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "magHz",
+          "tags": [],
+          "docs": "Magnetometer rate, Hz. Default 50.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "baroHz",
+          "tags": [],
+          "docs": "Barometer rate, Hz. Default 10 (iOS delivers ~1 Hz regardless).",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "locationIntervalMs",
+          "tags": [],
+          "docs": "GPS interval, ms. Default 1000.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "chunkSeconds",
+          "tags": [],
+          "docs": "Chunk length, seconds. Default 60.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "maxStorageMb",
+          "tags": [],
+          "docs": "Stop recording (stopReason STORAGE_FULL) when finished + current chunks exceed this, MB. Default 500.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "notificationTitle",
+          "tags": [],
+          "docs": "Android foreground-service notification title. Default \"Sensor recording active\".",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "notificationText",
+          "tags": [],
+          "docs": "Android foreground-service notification text. Default \"Recording raw sensor data\".",
+          "complexTypes": [],
+          "type": "string | undefined"
+        }
+      ]
+    },
+    {
+      "name": "RecordingStatus",
+      "slug": "recordingstatus",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "recording",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "boolean"
+        },
+        {
+          "name": "recordingId",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string | undefined"
+        },
+        {
+          "name": "startedAt",
+          "tags": [],
+          "docs": "Epoch ms when the current recording started.",
+          "complexTypes": [],
+          "type": "number | undefined"
+        },
+        {
+          "name": "chunksPending",
+          "tags": [],
+          "docs": "Finished chunks waiting to be fetched.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "bytesPending",
+          "tags": [],
+          "docs": "Bytes on disk for finished + current chunks.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "available",
+          "tags": [],
+          "docs": "Which sensors exist on this device.",
+          "complexTypes": [],
+          "type": "{ acc: boolean; gyr: boolean; mag: boolean; bar: boolean; loc: boolean; }"
+        },
+        {
+          "name": "measuredHz",
+          "tags": [],
+          "docs": "Samples per sensor in the last ~5 seconds divided by the window length (actual rate).",
+          "complexTypes": [
+            "RecordingSensorStats"
+          ],
+          "type": "RecordingSensorStats"
+        },
+        {
+          "name": "stopReason",
+          "tags": [],
+          "docs": "Set when recording stopped by itself: STORAGE_FULL, PERMISSION_LOST, or ERROR.",
+          "complexTypes": [],
+          "type": "string | undefined"
+        }
+      ]
+    },
+    {
+      "name": "RecordingSensorStats",
+      "slug": "recordingsensorstats",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "acc",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "gyr",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "mag",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "bar",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "loc",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        }
+      ]
+    },
+    {
+      "name": "RecordingChunkInfo",
+      "slug": "recordingchunkinfo",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "chunkId",
+          "tags": [],
+          "docs": "`<recordingId>-<seq>` with seq zero-padded to 6 digits.",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "recordingId",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "seq",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "startTs",
+          "tags": [],
+          "docs": "Epoch ms of the first and last sample in the chunk.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "endTs",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "bytes",
+          "tags": [],
+          "docs": "Size of the gzip payload, bytes.",
+          "complexTypes": [],
+          "type": "number"
+        },
+        {
+          "name": "counts",
+          "tags": [],
+          "docs": "Samples per sensor in this chunk.",
+          "complexTypes": [
+            "RecordingSensorStats"
+          ],
+          "type": "RecordingSensorStats"
+        }
+      ]
+    },
+    {
+      "name": "RecordingChunk",
+      "slug": "recordingchunk",
+      "docs": "",
+      "tags": [],
+      "methods": [],
+      "properties": [
+        {
+          "name": "format",
+          "tags": [],
+          "docs": "Always \"csv-v1\": see SPEC.md \"Recording CSV format\".",
+          "complexTypes": [],
+          "type": "'csv-v1'"
+        },
+        {
+          "name": "encoding",
+          "tags": [],
+          "docs": "Always \"gzip+base64\".",
+          "complexTypes": [],
+          "type": "'gzip+base64'"
+        },
+        {
+          "name": "platform",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "'android' | 'ios'"
+        },
+        {
+          "name": "deviceModel",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "osVersion",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "pluginVersion",
+          "tags": [],
+          "docs": "",
+          "complexTypes": [],
+          "type": "string"
+        },
+        {
+          "name": "sensorInfo",
+          "tags": [],
+          "docs": "Sensor descriptions, e.g. vendor/name and whether calibrated.",
+          "complexTypes": [
+            "Record"
+          ],
+          "type": "Record<string, string>"
+        },
+        {
+          "name": "data",
+          "tags": [],
+          "docs": "Base64 of the gzip-compressed CSV.",
+          "complexTypes": [],
+          "type": "string"
+        }
+      ]
     }
   ],
   "enums": [],
@@ -635,6 +1037,20 @@
         {
           "text": "'TRIP_END'",
           "complexTypes": []
+        }
+      ]
+    },
+    {
+      "name": "Record",
+      "slug": "record",
+      "docs": "Construct a type with a set of properties K of type T",
+      "types": [
+        {
+          "text": "{\r\n    [P in K]: T;\r\n}",
+          "complexTypes": [
+            "K",
+            "T"
+          ]
         }
       ]
     }

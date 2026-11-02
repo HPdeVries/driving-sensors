@@ -36,6 +36,12 @@ npx cap sync
 * [`getLastReadings()`](#getlastreadings)
 * [`getCurrentReadings(...)`](#getcurrentreadings)
 * [`getPluginVersion()`](#getpluginversion)
+* [`startRecording(...)`](#startrecording)
+* [`stopRecording()`](#stoprecording)
+* [`getRecordingStatus()`](#getrecordingstatus)
+* [`listRecordingChunks(...)`](#listrecordingchunks)
+* [`getRecordingChunk(...)`](#getrecordingchunk)
+* [`ackRecordingChunk(...)`](#ackrecordingchunk)
 * [Interfaces](#interfaces)
 * [Type Aliases](#type-aliases)
 
@@ -197,6 +203,97 @@ Version of the native plugin code compiled into the app (not the JS bundle), plu
 --------------------
 
 
+### startRecording(...)
+
+```typescript
+startRecording(options?: RecordingOptions | undefined) => Promise<{ recordingId: string; }>
+```
+
+Start raw sensor recording (debug / data-collection mode), independent of trip tracking.
+Samples accelerometer, gyroscope, magnetometer, barometer and GPS continuously and writes
+them to compressed chunk files on the device. Runs in the background like tracking.
+Idempotent: if already recording, resolves with the current recording id and ignores options.
+
+| Param         | Type                                                          |
+| ------------- | ------------------------------------------------------------- |
+| **`options`** | <code><a href="#recordingoptions">RecordingOptions</a></code> |
+
+**Returns:** <code>Promise&lt;{ recordingId: string; }&gt;</code>
+
+--------------------
+
+
+### stopRecording()
+
+```typescript
+stopRecording() => Promise<void>
+```
+
+Stop recording and finalize the current chunk. Finished chunks are kept until acked.
+
+--------------------
+
+
+### getRecordingStatus()
+
+```typescript
+getRecordingStatus() => Promise<RecordingStatus>
+```
+
+**Returns:** <code>Promise&lt;<a href="#recordingstatus">RecordingStatus</a>&gt;</code>
+
+--------------------
+
+
+### listRecordingChunks(...)
+
+```typescript
+listRecordingChunks(options?: { limit?: number | undefined; } | undefined) => Promise<{ chunks: RecordingChunkInfo[]; }>
+```
+
+Finished chunks waiting to be fetched, oldest first. The chunk being written is not listed.
+
+| Param         | Type                             |
+| ------------- | -------------------------------- |
+| **`options`** | <code>{ limit?: number; }</code> |
+
+**Returns:** <code>Promise&lt;{ chunks: RecordingChunkInfo[]; }&gt;</code>
+
+--------------------
+
+
+### getRecordingChunk(...)
+
+```typescript
+getRecordingChunk(options: { chunkId: string; }) => Promise<RecordingChunk>
+```
+
+One finished chunk including its gzip+base64 CSV payload. Does not delete it.
+
+| Param         | Type                              |
+| ------------- | --------------------------------- |
+| **`options`** | <code>{ chunkId: string; }</code> |
+
+**Returns:** <code>Promise&lt;<a href="#recordingchunk">RecordingChunk</a>&gt;</code>
+
+--------------------
+
+
+### ackRecordingChunk(...)
+
+```typescript
+ackRecordingChunk(options: { chunkId: string; }) => Promise<void>
+```
+
+Delete a finished chunk after it has been delivered. Unknown ids resolve without error.
+
+| Param         | Type                              |
+| ------------- | --------------------------------- |
+| **`options`** | <code>{ chunkId: string; }</code> |
+
+--------------------
+
+
 ### Interfaces
 
 
@@ -289,6 +386,73 @@ Version of the native plugin code compiled into the app (not the JS bundle), plu
 | **`samples`**            | <code>number</code> | Number of samples in the window. `getCurrentReadings` only.                                  |
 
 
+#### RecordingOptions
+
+| Prop                     | Type                | Description                                                                                           |
+| ------------------------ | ------------------- | ----------------------------------------------------------------------------------------------------- |
+| **`accelHz`**            | <code>number</code> | Accelerometer rate, Hz. Default 100.                                                                  |
+| **`gyroHz`**             | <code>number</code> | Gyroscope rate, Hz. Default 100.                                                                      |
+| **`magHz`**              | <code>number</code> | Magnetometer rate, Hz. Default 50.                                                                    |
+| **`baroHz`**             | <code>number</code> | Barometer rate, Hz. Default 10 (iOS delivers ~1 Hz regardless).                                       |
+| **`locationIntervalMs`** | <code>number</code> | GPS interval, ms. Default 1000.                                                                       |
+| **`chunkSeconds`**       | <code>number</code> | Chunk length, seconds. Default 60.                                                                    |
+| **`maxStorageMb`**       | <code>number</code> | Stop recording (stopReason STORAGE_FULL) when finished + current chunks exceed this, MB. Default 500. |
+| **`notificationTitle`**  | <code>string</code> | Android foreground-service notification title. Default "Sensor recording active".                     |
+| **`notificationText`**   | <code>string</code> | Android foreground-service notification text. Default "Recording raw sensor data".                    |
+
+
+#### RecordingStatus
+
+| Prop                | Type                                                                                   | Description                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| **`recording`**     | <code>boolean</code>                                                                   |                                                                                       |
+| **`recordingId`**   | <code>string</code>                                                                    |                                                                                       |
+| **`startedAt`**     | <code>number</code>                                                                    | Epoch ms when the current recording started.                                          |
+| **`chunksPending`** | <code>number</code>                                                                    | Finished chunks waiting to be fetched.                                                |
+| **`bytesPending`**  | <code>number</code>                                                                    | Bytes on disk for finished + current chunks.                                          |
+| **`available`**     | <code>{ acc: boolean; gyr: boolean; mag: boolean; bar: boolean; loc: boolean; }</code> | Which sensors exist on this device.                                                   |
+| **`measuredHz`**    | <code><a href="#recordingsensorstats">RecordingSensorStats</a></code>                  | Samples per sensor in the last ~5 seconds divided by the window length (actual rate). |
+| **`stopReason`**    | <code>string</code>                                                                    | Set when recording stopped by itself: STORAGE_FULL, PERMISSION_LOST, or ERROR.        |
+
+
+#### RecordingSensorStats
+
+| Prop      | Type                |
+| --------- | ------------------- |
+| **`acc`** | <code>number</code> |
+| **`gyr`** | <code>number</code> |
+| **`mag`** | <code>number</code> |
+| **`bar`** | <code>number</code> |
+| **`loc`** | <code>number</code> |
+
+
+#### RecordingChunkInfo
+
+| Prop              | Type                                                                  | Description                                                         |
+| ----------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **`chunkId`**     | <code>string</code>                                                   | `&lt;recordingId&gt;-&lt;seq&gt;` with seq zero-padded to 6 digits. |
+| **`recordingId`** | <code>string</code>                                                   |                                                                     |
+| **`seq`**         | <code>number</code>                                                   |                                                                     |
+| **`startTs`**     | <code>number</code>                                                   | Epoch ms of the first and last sample in the chunk.                 |
+| **`endTs`**       | <code>number</code>                                                   |                                                                     |
+| **`bytes`**       | <code>number</code>                                                   | Size of the gzip payload, bytes.                                    |
+| **`counts`**      | <code><a href="#recordingsensorstats">RecordingSensorStats</a></code> | Samples per sensor in this chunk.                                   |
+
+
+#### RecordingChunk
+
+| Prop                | Type                                                            | Description                                                   |
+| ------------------- | --------------------------------------------------------------- | ------------------------------------------------------------- |
+| **`format`**        | <code>'csv-v1'</code>                                           | Always "csv-v1": see SPEC.md "Recording CSV format".          |
+| **`encoding`**      | <code>'gzip+base64'</code>                                      | Always "gzip+base64".                                         |
+| **`platform`**      | <code>'android' \| 'ios'</code>                                 |                                                               |
+| **`deviceModel`**   | <code>string</code>                                             |                                                               |
+| **`osVersion`**     | <code>string</code>                                             |                                                               |
+| **`pluginVersion`** | <code>string</code>                                             |                                                               |
+| **`sensorInfo`**    | <code><a href="#record">Record</a>&lt;string, string&gt;</code> | Sensor descriptions, e.g. vendor/name and whether calibrated. |
+| **`data`**          | <code>string</code>                                             | Base64 of the gzip-compressed CSV.                            |
+
+
 ### Type Aliases
 
 
@@ -305,5 +469,12 @@ Version of the native plugin code compiled into the app (not the JS bundle), plu
 #### TelemetryEventType
 
 <code>'LOCATION' | 'HARSH_BRAKE' | 'HARSH_ACCEL' | 'TRIP_START' | 'TRIP_END'</code>
+
+
+#### Record
+
+Construct a type with a set of properties K of type T
+
+<code>{ [P in K]: T; }</code>
 
 </docgen-api>

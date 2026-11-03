@@ -1,6 +1,6 @@
 # DeviceTokenCrypto (ODC External Logic)
 
-Tiny C# library for the backend of native upload (`odc/BACKEND-UPLOAD-GUIDE.md`). Needed because ODC has **no built-in** secure random or SHA-256 function that we could confirm (see the guide, "Crypto options").
+Tiny C# library for the backend of native upload (`odc/BACKEND-UPLOAD-GUIDE.md`). Written when we assumed ODC had no built-in crypto. **Correction (2026-11-03):** ODC's built-in **Security** library has `ComputeTextHash`, `ComputeBinaryHash`, `ComputeMAC`, `CryptoRandomInt`, `AES_*` and `RSA_*`. This library can likely be replaced by those; check that `ComputeTextHash` (SHA-256) output matches `Sha256Hex` (lowercase hex) before switching, or existing device tokens stop working.
 
 | Server action | Purpose |
 |---|---|

@@ -1,5 +1,7 @@
 # DrivingSensorsAPI: replace DeviceTokenCrypto (External Logic) with the built-in Security library
 
+**Status: applied 2026-11-04 (DrivingSensorsAPI revision 8).** ComputeMAC(Data Text, Key Binary, Algorithm "HMACSHA256") returns Binary, stored as Base64; AES_NewKey(256) returns Binary, token = Base64 (44 chars). DeviceTokenMacKey must hold a Base64 key.
+
 Existing devices and data do not need to keep working (agreed 2026-11-03): every device registers again afterwards.
 
 ## 1. Dependencies

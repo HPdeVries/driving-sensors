@@ -117,6 +117,7 @@ for (var s2 = 0; s2 < loc.length; s2 += tStep) {
     segs.push(seg);
   } else seg.Points.push(p2);
 }
+if (seg && (loc.length - 1) % tStep !== 0) seg.Points.push({ Latitude: loc[loc.length - 1][1], Longitude: loc[loc.length - 1][2] });
 for (var s3 = 0; s3 < segs.length; s3++) delete segs[s3].band;
 
 var gm = "", ll = function (pt) { return pt[1].toFixed(6) + "," + pt[2].toFixed(6); };

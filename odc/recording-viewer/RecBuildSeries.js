@@ -8,7 +8,10 @@
  *   AxesPointsJson (Text)  - same shape, raw accelerometer bucket means "x", "y", "z" (m/s2, incl. gravity)
  *   SpeedPointsJson (Text) - same shape, series "km/h" (GPS speed)
  *   TrackJson (Text)       - JSON list of {Latitude, Longitude} (max 1000 points)
- *   GapsJson (Text)        - JSON list of {startTs, endTs, durationSec}: periods without accelerometer samples
+ *   SpeedTrackJson (Text)  - JSON list of {Color, Points:[{Latitude, Longitude}]}: the track split where the GPS speed
+ *                            band changes (<30 blue, 30-50 green, 50-80 yellow, 80-100 orange, >=100 km/h red, no speed grey);
+ *                            consecutive segments share their joining point
+ *   GapsJson (Text)      - JSON list of {startTs, endTs, durationSec}: periods without accelerometer samples
  *   GoogleMapsUrl (Text)   - route link (origin, up to 8 waypoints, destination), "" without GPS
  *   SummaryJson (Text)     - {startTs, endTs, durationSec, counts:{acc,gyr,mag,bar,loc}, maxHorizontal,
  *                             maxVertical, maxSpeedKmh, gapCount, gapTotalSec, coveragePct}
@@ -99,6 +102,23 @@ var track = [], tStep = Math.max(1, Math.ceil(loc.length / 1000));
 for (var m = 0; m < loc.length; m += tStep) track.push({ Latitude: loc[m][1], Longitude: loc[m][2] });
 if (loc.length && (loc.length - 1) % tStep !== 0) track.push({ Latitude: loc[loc.length - 1][1], Longitude: loc[loc.length - 1][2] });
 
+var bands = [[30, "#2563eb"], [50, "#16a34a"], [80, "#eab308"], [100, "#f97316"], [Infinity, "#dc2626"]];
+var bandOf = function (mps) {
+  if (!isFinite(mps)) return -1;
+  for (var bi = 0; bi < bands.length; bi++) if (mps * 3.6 < bands[bi][0]) return bi;
+  return bands.length - 1;
+};
+var segs = [], seg = null;
+for (var s2 = 0; s2 < loc.length; s2 += tStep) {
+  var b2 = bandOf(loc[s2][3]), p2 = { Latitude: loc[s2][1], Longitude: loc[s2][2] };
+  if (!seg || seg.band !== b2) {
+    if (seg) seg.Points.push(p2);
+    seg = { band: b2, Color: b2 < 0 ? "#9ca3af" : bands[b2][1], Points: [p2] };
+    segs.push(seg);
+  } else seg.Points.push(p2);
+}
+for (var s3 = 0; s3 < segs.length; s3++) delete segs[s3].band;
+
 var gm = "", ll = function (pt) { return pt[1].toFixed(6) + "," + pt[2].toFixed(6); };
 if (loc.length === 1) {
   gm = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(ll(loc[0]));
@@ -114,6 +134,7 @@ $parameters.AccelPointsJson = JSON.stringify(accPts);
 $parameters.AxesPointsJson = JSON.stringify(axesPts);
 $parameters.SpeedPointsJson = JSON.stringify(spdPts);
 $parameters.TrackJson = JSON.stringify(track);
+$parameters.SpeedTrackJson = JSON.stringify(segs);
 $parameters.GapsJson = JSON.stringify(gaps);
 $parameters.GoogleMapsUrl = gm;
 $parameters.SummaryJson = JSON.stringify({

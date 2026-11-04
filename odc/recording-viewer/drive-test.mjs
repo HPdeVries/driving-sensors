@@ -33,3 +33,6 @@ const at = (from, to) => Math.max(...pts.filter((p) => +p.Label >= from && +p.La
 console.log(`TAU=${tauArg || 'file'} summary`, r.SummaryJson);
 console.log('  horizontal max: brake 20-21s', at(20, 21), '| brake 22-23s', at(22, 23), '| accel 40-42s', at(40, 42), '| steady 30-35s', at(30, 35), '| bump 50s', at(50, 50.3));
 console.log('  gaps', r.GapsJson, '| axes series', [...new Set(JSON.parse(r.AxesPointsJson).map((p) => p.DataSeriesName))].join(','));
+const segs = JSON.parse(r.SpeedTrackJson);
+console.log('  speed segments', segs.map((s) => `${s.Color}x${s.Points.length}`).join(' '));
+for (let i = 1; i < segs.length; i++) { const a = segs[i - 1].Points.at(-1), b = segs[i].Points[0]; if (a.Latitude !== b.Latitude || a.Longitude !== b.Longitude) throw new Error('segments not joined'); }
